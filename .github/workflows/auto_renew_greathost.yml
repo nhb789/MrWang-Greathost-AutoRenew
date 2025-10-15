@@ -1,0 +1,40 @@
+name: Auto-renew-greathost
+
+on:
+  schedule:
+    - cron: '0 */11 * * *'  # 每11小时运行一次
+  workflow_dispatch:  # 允许手动运行
+
+jobs:
+  Auto_renew_greathost:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright and browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run renew script
+        env:
+         EMAIL: ${{ secrets.GREATHOST_EMAIL }}
+         PASSWORD: ${{ secrets.GREATHOST_PASSWORD }}
+         TG_BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+         TG_CHAT_ID: ${{ secrets.CHAT_ID }}
+         HEADLESS: 'true'
+        run: npm start
+
+      - name: Upload debug artifacts
+        if: failure() || always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: greathost-debug
+          path: out
