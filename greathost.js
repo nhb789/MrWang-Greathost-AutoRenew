@@ -61,8 +61,7 @@ async function sendTelegramMessage(message) {
     console.log("🔍 点击 Billing 图标...");
     const billingBtn = page.locator('.btn-billing-compact').first();
     const href = await billingBtn.getAttribute('href');
-    // 提前提取 ID，防止页面跳转后丢失上下文
-    const serverId = href ? href.split('/').pop() : 'unknown';
+ 
 
     await Promise.all([
       billingBtn.click(),
@@ -82,52 +81,70 @@ async function sendTelegramMessage(message) {
     console.log("⏳ 已进入详情页，等待3秒...");
     await page.waitForTimeout(3000);
 
-    // === 5. 执行续期 ===
-    console.log(`📊 服务器ID: ${serverId}`);
-    console.log("📊 检查续期前的累计时间...");
-    const beforeHours = await page.$eval('#accumulated-time', el => parseInt(el.textContent)).catch(() => 0);
-    console.log(`当前累计时间: ${beforeHours} 小时`);
+       // 提前提取 ID，防止页面跳转后丢失上下文
+    const serverId = page.url().split('/').pop() || 'unknown';
+    console.log(`🆔 解析到 Server ID: ${serverId}`);
 
-    console.log("⚡ 尝试点击续期按钮...");
-    await page.click('button:has-text("续期"), button:has-text("Renew")');
-    console.log("✅ 成功点击续期按钮");
-
-    // 等待刷新并检查
-    await page.waitForTimeout(5000);
-    await page.reload({ waitUntil: "networkidle" });
     
-    const afterHours = await page.$eval('#accumulated-time', el => parseInt(el.textContent)).catch(() => 0);
-    console.log(`续期后累计时间: ${afterHours} 小时`);
+// === 4. 关键：等待异步数据从 "Loading..." 变为真实数值 ===
+    console.log("⏳ 等待合约数据加载...");
+    const nextRenewalDate = page.locator('#next-renewal-date');
+    // 等待文字不再是 "Loading..."，最多等 10 秒
+    await nextRenewalDate.waitFor({ state: 'visible' });
+    await page.waitForFunction(
+      selector => {
+        const el = document.querySelector(selector);
+        return el && el.textContent !== 'Loading...' && el.textContent.trim() !== '';
+      },
+      '#next-renewal-date',
+      { timeout: 10000 }
+    ).catch(() => console.log("⚠️ 数据加载超时，尝试继续执行"));
 
-    // === 6. 结果判定与通知 ===
+    // === 5. 检查续期按钮文字 (处理 Wait 逻辑) ===
+    // 你的截图显示按钮文字是动态的，可能包含 "Wait" 或 "Renew"
+    const renewBtn = page.locator('button:has-text("Renew"), button:has-text("Wait"), button:has-text("续期")').first();
+    const btnText = (await renewBtn.textContent() || "").trim();
+    
+    // 获取续期前的累计时间
+    const beforeHoursText = await page.locator('div:has-text("Accumulated time") + div').first().textContent();
+    const beforeHours = parseInt(beforeHoursText.replace(/[^0-9]/g, '')) || 0;
+
+    console.log(`📊 按钮文案: "${btnText}" | 累计时间: ${beforeHours}h`);
+
+    // 如果按钮显示 Wait，发送通知并直接结束
+    if (btnText.includes('Wait')) {
+      const msg = `ℹ️ <b>GreatHost 尚未到续期时间</b>\n🆔 ID: <code>${serverId}</code>\n⏳ 状态: ${btnText}\n⏰ 累计: ${beforeHours}h`;
+      await sendTelegramMessage(msg);
+      return;
+    }
+
+    // === 6. 执行点击与二次验证 ===
+    console.log("⚡ 触发续期按钮...");
+    await renewBtn.click();
+    
+    // 点击后强制等待并刷新，防止前端“虚假增加”
+    await page.waitForTimeout(8000); 
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(3000);
+
+    const afterHoursText = await page.locator('div:has-text("Accumulated time") + div').first().textContent();
+    const afterHours = parseInt(afterHoursText.replace(/[^0-9]/g, '')) || 0;
+
+    // === 7. 结果判定 ===
     if (afterHours > beforeHours) {
-      console.log("🎉 续期成功！");
-      const message = `🎉 <b>GreatHost 续期成功</b>\n\n` +
-                     `🆔 <b>服务器ID:</b> <code>${serverId}</code>\n` +
-                     `⏰ <b>时间变化:</b> ${beforeHours} ➔ ${afterHours} 小时\n` +
-                     `🚀 <b>服务器状态:</b> ${serverStarted ? '已触发启动' : '运行中'}\n` +
-                     `📅 <b>时间:</b> ${new Date().toLocaleString('zh-CN')}`;
-      await sendTelegramMessage(message);
-      await browser.close();
-      process.exit(0);
+      const msg = `🎉 <b>GreatHost 续期成功</b>\n🆔 ID: <code>${serverId}</code>\n⏰ 时间: ${beforeHours} ➔ ${afterHours}h`;
+      await sendTelegramMessage(msg);
+      console.log("🎉 任务完成");
     } else {
-      console.error("⚠️ 续期可能失败，累计时间未增加");
-      const message = `⚠️ <b>GreatHost 续期未增加</b>\n\n` +
-                     `🆔 <b>服务器ID:</b> <code>${serverId}</code>\n` +
-                     `⏰ <b>当前时间:</b> ${beforeHours} 小时\n` +
-                     `💡 <b>提示:</b> 时间未变化，可能不到续期点。`;
-      await sendTelegramMessage(message);
-      await page.screenshot({ path: "renew-fail.png" });
-      await browser.close();
-      process.exit(1);
+      const msg = `⚠️ <b>GreatHost 续期未生效</b>\n🆔 ID: <code>${serverId}</code>\n⏰ 时间仍为: ${beforeHours}h\n💡 提示: 请检查账号是否有足够金币或手动操作一次。`;
+      await sendTelegramMessage(msg);
+      console.log("⚠️ 续期未生效");
     }
 
   } catch (err) {
-    console.error("❌ 脚本出错：", err.message);
-    const message = `🚨 <b>GreatHost 自动化脚本出错</b>\n\n❌ <b>错误:</b> <code>${err.message}</code>`;
-    await sendTelegramMessage(message);
-    await page.screenshot({ path: "renew-error.png" });
+    console.error("❌ 运行时出错:", err.message);
+    await sendTelegramMessage(`🚨 <b>GreatHost 脚本报错</b>\n<code>${err.message}</code>`);
+  } finally {
     await browser.close();
-    process.exit(2);
   }
 })();
