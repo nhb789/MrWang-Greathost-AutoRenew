@@ -61,8 +61,7 @@ async function sendTelegramMessage(message) {
     console.log("🔍 点击 Billing 图标...");
     const billingBtn = page.locator('.btn-billing-compact').first();
     const href = await billingBtn.getAttribute('href');
- 
-
+    
     await Promise.all([
       billingBtn.click(),
       page.waitForNavigation({ waitUntil: "networkidle" })
@@ -81,44 +80,55 @@ async function sendTelegramMessage(message) {
     console.log("⏳ 已进入详情页，等待3秒...");
     await page.waitForTimeout(3000);
 
-       // 提前提取 ID，防止页面跳转后丢失上下文
-    const serverId = page.url().split('/').pop() || 'unknown';
-    console.log(`🆔 解析到 Server ID: ${serverId}`);
-
     
-// 3. 等待异步数据加载 (直到 accumulated-time 有数字)
+    // === 5. 提前提取 ID，防止页面跳转后丢失上下文 ===
+    const serverId = page.url().split('/').pop() || 'unknown';
+    console.log(`🆔 解析到 Server ID: ${serverId}`);    
+
+    // === 6. 等待异步数据加载 (直到 accumulated-time 有数字) ===    
     const timeSelector = '#accumulated-time';
     await page.waitForFunction(sel => {
       const el = document.querySelector(sel);
       return el && /\d+/.test(el.textContent) && el.textContent.trim() !== '0 hours';
     }, timeSelector, { timeout: 10000 }).catch(() => console.log("⚠️ 初始时间加载超时或为0"));
 
-    // 4. 获取当前状态
+    // === 7. 获取当前状态 ===
     const beforeHoursText = await page.textContent(timeSelector);
     const beforeHours = parseInt(beforeHoursText.replace(/[^0-9]/g, '')) || 0;
-    
-    // 定位源代码中的 ID 按钮
+      
+    // === 8. 定位源代码中的 ID 按钮 ===
     const renewBtn = page.locator('#renew-free-server-btn');
     const btnContent = await renewBtn.innerHTML();
-
+    
+    // === 9. 逻辑判定 ===
     console.log(`🆔 ID: ${serverId} | ⏰ 目前: ${beforeHours}h | 🔘 状态: ${btnContent.includes('Wait') ? '冷却中' : '可续期'}`);
-
-    // 5. 逻辑判定
+       
     if (btnContent.includes('Wait')) {
-      const waitTime = btnContent.match(/\d+/)?.[0] || "??";
-      await sendTelegramMessage(`⏳ <b>GreatHost 还在冷却</b>\n🆔 ID: <code>${serverId}</code>\n⏰ 剩余: ${waitTime} 分钟\n📊 累计: ${beforeHours}h`);
-      return;
-    }
-
-    // 6. 执行续期
+    // 9.1. 提取数字：从 "Wait 23 min" 中提取出 "23"
+    const waitTime = btnContent.match(/\d+/)?.[0] || "??"; 
+    
+    // 9.2. 组装消息：通知用户还在冷却，并显示当前已累计的时间
+    const message = `⏳ <b>GreatHost 还在冷却中</b>\n\n` +
+                    `🆔 <b>服务器ID:</b> <code>${serverId}</code>\n` +
+                    `⏰ <b>剩余时间:</b> ${waitTime} 分钟\n` +
+                    `📊 <b>当前累计:</b> ${beforeHours}h\n` +
+                    `🚀 <b>服务器状态:</b> ${serverStarted ? '✅ 已触发启动' : '运行中'}\n` +
+                    `📅 <b>检查时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
+    
+    await sendTelegramMessage(message); // 发送TG通知
+    await browser.close();
+    return; // 结束脚本，不执行后面的点击操作
+}
+     
+    // === 10. 执行续期 ===
     console.log("⚡ 正在调用续期接口...执行续期...");
     await renewBtn.click();
-
-    // 等待接口返回并处理（源代码中使用了 fetch，这里等待页面响应）
+    
+    // === 11. 等待接口返回并处理（源代码中使用了 fetch，这里等待页面响应） ===
     await page.waitForTimeout(8000); 
     await page.reload({ waitUntil: "networkidle" });
-
-    // 再次等待数据刷新
+    
+    // === 12. 再次等待数据刷新 ===
     await page.waitForFunction(sel => {
       const el = document.querySelector(sel);
       return el && /\d+/.test(el.textContent);
@@ -127,7 +137,7 @@ async function sendTelegramMessage(message) {
     const afterHoursText = await page.textContent(timeSelector);
     const afterHours = parseInt(afterHoursText.replace(/[^0-9]/g, '')) || 0;
 
-// === 7. 最终通知 ===
+    // === 12. 最终通知 ===
 if (afterHours > beforeHours) {
     const message = `🎉 <b>GreatHost 续期成功</b>\n\n` +
                     `🆔 <b>服务器ID:</b> <code>${serverId}</code>\n` +
