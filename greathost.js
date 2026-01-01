@@ -141,26 +141,27 @@ async function sendTelegramMessage(message) {
     return; // 结束脚本，不执行后面的点击操作
 }
     
-   // === 10. 执行续期 ===
+    // === 10. 执行续期 ===
     console.log("⚡ 正在执行续期点击...");
     await renewBtn.click();
 
     // === 11. 等待接口返回并处理（源代码中使用了 fetch，这里等待页面响应） ===
-    // 等待 8 秒让后端处理，并留心观察页面是否出现了错误提示
+          // 等待 8 秒让后端处理
     await page.waitForTimeout(8000);     
-            // 检查页面上是否弹出了这个错误文本（通常是红色提示框）
+          // 检查页面上是否弹出了这个错误文本（通常是红色提示框）
     const errorMsg = await page.locator('.toast-error, .alert-danger').textContent().catch(() => '');
     const isMaxedOut = errorMsg.includes('5 días') || beforeHours >= 120;
-    //await page.reload({ waitUntil: "networkidle" });
-    // 即使刷新超时，也继续执行后续逻辑，尝试读取时间
+         //await page.reload({ waitUntil: "networkidle" });
+         // 即使刷新超时，也继续执行后续逻辑，尝试读取时间
     await page.reload({ waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => console.log("⚠️ 页面刷新超时，尝试直接读取数据..."));
     
     // === 12. 再次等待数据刷新 ===
     await page.waitForFunction(sel => {
       const el = document.querySelector(sel);
       return el && /\d+/.test(el.textContent);
-    }, timeSelector);    
-            // 获取续期后时间
+    }, timeSelector, { timeout: 5000 }).catch(() => {});  // 即使刷新失败，这里等5秒
+            
+           // 获取续期后时间
     const afterHoursText = await page.textContent(timeSelector);
     const afterHours = parseInt(afterHoursText.replace(/[^0-9]/g, '')) || 0;
 
