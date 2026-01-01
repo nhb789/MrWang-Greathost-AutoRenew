@@ -180,7 +180,7 @@ async function sendTelegramMessage(message) {
                         `🚀 <b>状态:</b> ${serverStarted ? '✅ 已触发启动' : '运行正常'}\n` + 
                         `📅 <b>执行时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`; 
         await sendTelegramMessage(message);
-        console.log("✅ 续期成功 ✅   ");
+        console.log(" ✅ 续期成功 ✅ ");
     } else if (isMaxedOut) {
         // 场景 B：因为满 120 小时而被拒绝（这就是你看到的 No puedes renovar...）
         const message = `✅ <b>GreatHost 已达上限</b>\n\n` +
@@ -190,7 +190,7 @@ async function sendTelegramMessage(message) {
                         `📅 <b>检查时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n` +      
                         `💡 <b>提示:</b> 累计不能超过 5 天，无需续期。`;
         await sendTelegramMessage(message);
-        console.log("⚠️  累计不能超过 5 天，无需续期 ⚠️  ");
+        console.log("⚠️ 无需续期 ⚠️  ");
     } else {
         // 场景 C：真正的失败（比如网络问题或按钮点不动）
         const message = `⚠️ <b>GreatHost 续期未生效</b>\n\n` +
@@ -200,11 +200,11 @@ async function sendTelegramMessage(message) {
                         `📅 <b>检查时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n` +
                         `💡 <b>提示:</b> 时间未增加，请手动检查确认。`;            
         await sendTelegramMessage(message);    
-        console.log("🚨 续期失败 🚨 ");
+        console.log(" 🚨 续期失败 🚨 ");
     }  
   } catch (err) {
-    console.error("❌ 运行时错误:", err.message);
-    await sendTelegramMessage(`🚨 <b>GreatHost 脚本报错</b>\n<code>${err.message}</code> 🚨`);
+    console.error(" ❌ 运行时错误 ❌ :", err.message);
+    await sendTelegramMessage(` 🚨 <b>GreatHost 脚本报错</b>\n<code>${err.message}</code> 🚨 `);
   } finally {
     await browser.close();
   }
