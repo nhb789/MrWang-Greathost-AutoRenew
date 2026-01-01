@@ -182,7 +182,7 @@ async function sendTelegramMessage(message) {
         await sendTelegramMessage(message);
         console.log(" ✅ 续期成功 ✅ ");
     } else if (isMaxedOut) {
-        // 场景 B：因为满 120 小时而被拒绝（这就是你看到的 No puedes renovar...）
+        // 场景 B：因为满 120 小时而被拒绝。
         const message = `✅ <b>GreatHost 已达上限</b>\n\n` +
                         `🆔 <b>ID:</b> <code>${serverId}</code>\n` +
                         `⏰ <b>当前:</b> ${beforeHours}h (已满额)\n` +
