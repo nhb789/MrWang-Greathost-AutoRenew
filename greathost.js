@@ -218,7 +218,7 @@ async function sendTelegramMessage(message) {
                         `⏰ <b>当前:</b> ${beforeHours}h (已满额)\n` +
                         `🚀 <b>状态:</b> ${serverStarted ? '✅ 已触发启动' : '运行正常'}\n` +
                         `📅 <b>检查时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n` +      
-                        `💡 <b>提示:</b> 累计不能超过 5 天，无需续期。`;
+                        `💡 <b>提示:</b> No puedes renovar más de 5 días acumulados。`;
         await sendTelegramMessage(message);
         console.log(" ⚠️ 无需续期 ⚠️ ");
     } else {
