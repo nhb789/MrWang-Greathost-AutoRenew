@@ -3,7 +3,7 @@ const PASSWORD = process.env.GREATHOST_PASSWORD || '';
 const CHAT_ID = process.env.CHAT_ID || '';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
   // === sock5代理配置固定IP用 (如果不需要代理，留空) ===
-const RAW_PROXY = (process.env.PROXY_URL || "").trim();
+const PROXY_URL = (process.env.PROXY_URL || "").trim();
 
 const { chromium } = require("playwright");
 const https = require('https');
@@ -34,9 +34,9 @@ const launchOptions = {
   args: ['--no-sandbox'] 
 };
 
-if (RAW_PROXY) {
+if (PROXY_URL) {
     // 强制补全 socks5:// 前缀（如果用户没填的话）
-    const serverUrl = RAW_PROXY.startsWith('socks') ? RAW_PROXY : `socks5://${RAW_PROXY}`;
+    const serverUrl = PROXY_URL.startsWith('socks') ? PROXY_URL : `socks5://${PROXY_URL}`;
     launchOptions.proxy = { server: serverUrl };
     console.log(`🌍 [SOCKS5] 代理已就绪: ${serverUrl.split('@').pop()}`);
 }
