@@ -31,7 +31,7 @@ async function sendTelegramMessage(message) {
 }
 
 (async () => {
-    // === 目标 URL 变量 ===
+    // === 变量定义 ===
     const GREATHOST_URL = "https://greathost.es";    
     const LOGIN_URL = `${GREATHOST_URL}/login`;
     const HOME_URL = `${GREATHOST_URL}/dashboard`;
@@ -40,15 +40,20 @@ async function sendTelegramMessage(message) {
     let proxyStatusTag = "🌐 直连模式";
     let serverStarted = false;
 
-    // 1. 解析代理数据 (修复 proxyData is not defined)
+    // --- 1. 严格解析 PROXY_URL ---
     let proxyData = null;
-    if (PROXY_URL) {
+    if (PROXY_URL && PROXY_URL.trim().length > 0) {
         try {
-            const cleanUrl = PROXY_URL.replace(/^socks5:\/\/|^http:\/\/|^https:\/\//, '');
-            proxyData = new URL(`socks5://${cleanUrl}`);
+            // 确保有协议头
+            let cleanUrl = PROXY_URL.trim();
+            if (!cleanUrl.startsWith('socks')) {
+                cleanUrl = `socks5://${cleanUrl}`;
+            }
+            proxyData = new URL(cleanUrl);
             proxyStatusTag = `🔒 代理模式 (${proxyData.host})`;
         } catch (e) {
-            console.error("❌ PROXY_URL 格式解析错误:", e.message);
+            console.error("❌ PROXY_URL 解析失败:", e.message);
+            proxyStatusTag = "⚠️ 代理配置错误 (退回直连)";
         }
     }
 
@@ -56,60 +61,48 @@ async function sendTelegramMessage(message) {
     try {
         console.log(`🚀 任务启动 | 引擎: Firefox | ${proxyStatusTag}`);
         
-        // 2. 启动浏览器 - 只传服务器地址，不传账号密码，避开报错
+        // --- 2. 启动 Firefox (这里必须传 proxy 才能生效) ---
         const launchOptions = { headless: true };
         if (proxyData) {
+            // 只传服务器地址，避免 Playwright 报认证不支持的错
             launchOptions.proxy = { server: `socks5://${proxyData.host}` };
         }
         browser = await firefox.launch(launchOptions);
 
-        // 3. 创建上下文 - 仅此一处定义
+        // --- 3. 创建上下文 (全局唯一声明) ---
         const context = await browser.newContext({
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0',
             viewport: { width: 1280, height: 720 },
             locale: 'es-ES'
         });
 
-        const page = await context.newPage();
-
-        // 4. 关键：手动注入 SOCKS5 认证凭据 (Playwright 正确语法)
+        // --- 4. 注入 SOCKS5 账号密码 (解决认证问题) ---
         if (proxyData && proxyData.username) {
-            await page.route('**/*', async (route) => {
-                const response = await route.fetch();
-                // 如果遇到 407 代理认证错误，Playwright 会自动处理，但我们先通过 route 确保连接
-                await route.continue();
-            });
-            // 这是 Playwright 处理认证的标准 API
             await context.setHttpCredentials({
                 username: proxyData.username,
                 password: proxyData.password
             });
-            console.log("🔑 代理凭据已通过 context.setHttpCredentials 注入");
+            console.log(`🔑 代理认证已注入: ${proxyData.username}`);
         }
 
-          // 4. Firefox 专属伪装（移除所有 Chrome 特征，确保持一致性）
+        const page = await context.newPage();
+
+        // --- 5. 抹除特征 ---
         await page.addInitScript(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en'] });
-            Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
-            const getParameter = WebGLRenderingContext.prototype.getParameter;
-            WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                if (parameter === 37445) return 'Intel Inc.';
-                if (parameter === 37446) return 'Intel(R) Iris(TM) Plus Graphics 640';
-                return getParameter.apply(this, [parameter]);
-            };
+            Object.defineProperty(navigator, 'webdriver', { get: () => false });
         });
 
-        // 5. 代理 IP 检测（熔断机制）
+        // --- 6. 代理 IP 熔断检查 ---
         if (proxyData) {
             console.log("🌍 [Check] 正在检测代理出口 IP...");
             try {
-                await page.goto("https://api.ipify.org?format=json", { timeout: 30000 });
+                // 增加超时，防止代理过慢导致崩溃
+                await page.goto("https://api.ipify.org?format=json", { timeout: 60000 });
                 const ipInfo = JSON.parse(await page.innerText('body'));
                 console.log(`✅ 当前出口 IP: ${ipInfo.ip}`);
             } catch (e) {
-                await sendTelegramMessage(`🚨 <b>GreatHost 代理异常</b>\n原因: ${e.message}`);
-                throw new Error("Proxy Check Failed"); 
+                console.error(`❌ 代理检查失败: ${e.message}`);
+                throw new Error(`Proxy Check Failed: ${e.message}`);
             }
         }
 
