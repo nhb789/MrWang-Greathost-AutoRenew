@@ -23,25 +23,31 @@ async function sendTelegramMessage(message) {
   });
 }
 
-(async () => {      
-    const GREATHOST_URL = "https://greathost.es";    
-    const LOGIN_URL = `${GREATHOST_URL}/login`;
-    const HOME_URL = `${GREATHOST_URL}/dashboard`;
-
+(async () => {
+    const GREATHOST_URL = "https://greathost.es";
     let proxyStatusTag = "🌐 直连模式";
 
-    // --- 修改开始：Playwright 兼容性最高的 SOCKS5 写法 ---
-    const launchOptions = { headless: true, args: ['--no-sandbox'] };
-    let proxyData = null;
+    const launchOptions = { 
+        headless: true, 
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            // 关键：强制浏览器忽略代理认证（有时能绕过内核限制）
+            '--ignore-certificate-errors'
+        ] 
+    };
 
+    let proxyData = null;
     if (PROXY_URL) {
         try {
-            const rawUrl = PROXY_URL.startsWith('socks') ? PROXY_URL : `socks5://${PROXY_URL}`;
+            // 无论你输入什么，我们在这里强制转换
+            const rawUrl = PROXY_URL.replace('socks5://', 'http://'); 
             proxyData = new URL(rawUrl);
             
-            // 核心改动 1：启动浏览器时，server 字符串【不要】包含账号密码
+            // 重点：尝试以 http 协议格式提供给 launch
+            // 很多时候 Playwright 会自动处理 socks 握手，但声明为 http 能骗过认证检查
             launchOptions.proxy = { 
-                server: `socks5://${proxyData.host}` 
+                server: proxyData.href 
             };
             proxyStatusTag = `🔒 代理模式 (${proxyData.host})`;
         } catch (e) {
@@ -49,23 +55,27 @@ async function sendTelegramMessage(message) {
         }
     }
 
+    // 1. 启动浏览器
     const browser = await chromium.launch(launchOptions);
 
-    // 核心改动 2：在创建上下文时，单独通过 username 和 password 字段传值
-    // 这会触发 Playwright 的内部拦截机制来处理 SOCKS5 认证，而不是交给浏览器内核
+    // 2. 创建上下文（完全不再传任何 proxy 对象，让它只继承 launch 的 server）
     const context = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         viewport: { width: 1280, height: 720 },
-        locale: 'es-ES',
-        proxy: proxyData ? {
-            server: `socks5://${proxyData.host}`,
-            username: proxyData.username,
-            password: proxyData.password
-        } : undefined
+        locale: 'es-ES'
     });
 
     const page = await context.newPage();
-    // --- 修改结束 ---
+
+    // 3. 【核心黑科技】通过 page.authenticate 手动注入凭据
+    // 这比在 context 里写死的兼容性更强
+    if (proxyData && proxyData.username) {
+        await page.authenticate({
+            username: proxyData.username,
+            password: proxyData.password
+        });
+        console.log("🔑 代理凭据已通过 page.authenticate 注入");
+    }
     
       
   try {
