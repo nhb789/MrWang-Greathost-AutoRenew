@@ -18,7 +18,7 @@ EMAIL = os.getenv("GREATHOST_EMAIL") or ""
 PASSWORD = os.getenv("GREATHOST_PASSWORD") or ""
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or ""
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or ""
-# sock5代码，不需要留空值 62行要填上IP头
+# sock5代码，不需要留空值 62行左右要填上IP头
 PROXY_URL = os.getenv("PROXY_URL") or ""
 
 def send_telegram(msg_type_or_text, error_msg=None):    
@@ -75,14 +75,34 @@ def check_proxy_ip(driver):
 
 def get_browser():
     sw_options = {'proxy': {'http': PROXY_URL, 'https': PROXY_URL, 'no_proxy': 'localhost,127.0.0.1'}}
-    chrome_options = Options()
+    chrome_options = Options()  
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-    return webdriver.Chrome(options=chrome_options, seleniumwire_options=sw_options)
+    chrome_options.add_argument("--window-size=1920,1080")    
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    driver = webdriver.Chrome(options=chrome_options, seleniumwire_options=sw_options)
+        
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": """
+            Object.defineProperty(navigator, 'webdriver', {
+              get: () => undefined
+            })
+        """
+    })
+    
+    return driver
 
+def type_like_human(element, text):
+    """模拟真人打字：随机停顿输入每个字符"""
+    for char in text:
+        element.send_keys(char)
+        # 每个字母之间随机停顿 0.1 到 0.3 秒
+        time.sleep(random.uniform(0.1, 0.3))
+    
 def run_task():
     # 随机延迟启动
     wait_time = random.randint(1, 300)
@@ -100,13 +120,27 @@ def run_task():
         # === 代理熔断检查 ===
         check_proxy_ip(driver)
 
-        # === 登录流程 ===
+        # === 登录流程 (模拟真人打字版) ===
         wait = WebDriverWait(driver, 15)
-        print("🔑 正在执行登录...")
+        print("🔑 正在执行登录 (模拟真人输入)...")
         driver.get("https://greathost.es/login")
-        wait.until(EC.presence_of_element_located((By.NAME, "email"))).send_keys(EMAIL)
-        driver.find_element(By.NAME, "password").send_keys(PASSWORD)
+        
+        # 1. 输入邮箱
+        email_input = wait.until(EC.presence_of_element_located((By.NAME, "email")))
+        email_input.click() # 先点击一下，模拟鼠标聚焦
+        time.sleep(1)
+        type_like_human(email_input, EMAIL)
+        
+        # 2. 输入密码
+        password_input = driver.find_element(By.NAME, "password")
+        password_input.click()
+        time.sleep(0.5)
+        type_like_human(password_input, PASSWORD)
+        
+        # 3. 随机发呆一秒再点登录
+        time.sleep(random.uniform(1, 2))
         driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
+        
         wait.until(EC.url_contains("/dashboard"))
         print("✅ 登录成功！")
 
@@ -143,6 +177,18 @@ def run_task():
             print(f"⚠️ 无法获取实时状态 (可能是数据未加载): {e}")
             status_text = 'unknown'
 
+
+      # 登录成功后，不要立刻去点 Billing
+        print("🎲 执行随机假动作...")
+        if random.random() > 0.5:
+            driver.get("https://greathost.es/services") # 先去服务列表晃一圈
+            time.sleep(random.randint(3, 7))
+            # 2. 回到 Dashboard (或者直接跳回 Dashboard)
+            print("🏠 正在返回仪表盘...")
+            driver.get("https://greathost.es/dashboard") 
+            wait.until(EC.url_contains("/dashboard"))
+            time.sleep(2)     
+        
         # === 3. 点击 Billing 图标进入账单页 (增加容错与等待) ===
         print("🔍 正在定位 Billing 图标...")
         try:
