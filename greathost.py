@@ -94,9 +94,9 @@ def run_task():
     after_hours = 0
     driver = None
     server_started = False
+    
     try:
-        driver = get_browser()
-        
+        driver = get_browser()        
         # === 代理熔断检查 ===
         check_proxy_ip(driver)
 
