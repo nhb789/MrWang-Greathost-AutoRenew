@@ -2,7 +2,7 @@ const EMAIL = process.env.GREATHOST_EMAIL || '';
 const PASSWORD = process.env.GREATHOST_PASSWORD || '';
 const CHAT_ID = process.env.CHAT_ID || '';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
-const PROXY_URL = (process.env.PROXY_URL || "").trim();
+const PROXY_URL = (process.env.PROXY_URL || "socks5://admin123:admin321@138.68.253.225:30792").trim();
 
 const { firefox } = require("playwright");
 const https = require('https');
