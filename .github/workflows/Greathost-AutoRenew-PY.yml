@@ -1,4 +1,4 @@
-name: Auto-renew-greathost-test
+name: Greathost-AutoRenew-PY
 
 on:
   schedule:
