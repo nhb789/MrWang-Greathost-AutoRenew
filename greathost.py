@@ -11,6 +11,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
+from zoneinfo import ZoneInfo
 
 # ================= 环境变量获取 =================
 EMAIL = os.getenv("GREATHOST_EMAIL") or ""
@@ -37,7 +38,8 @@ def send_telegram(msg_type_or_text, error_msg=None):
         print(f"Telegram 发送失败: {e}")
 
 def get_now_shanghai():
-    return datetime.now().strftime('%Y/%m/%d %H:%M:%S')
+    return datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y/%m/%d %H:%M:%S')
+
 
 def check_proxy_ip(driver):
     """【熔断逻辑】检测当前代理 IP (防止代理失效导致直连)"""
@@ -128,11 +130,25 @@ def run_task():
         else:
             print(f"ℹ️ 服务器状态 [{status_text}] 正常，无需启动。")
 
-        # === 3. 点击 Billing 图标进入账单页 (JS 1:1) ===
-        print("🔍 点击 Billing 图标...")
-        driver.find_element(By.CLASS_NAME, 'btn-billing-compact').click()
-        print("⏳ 已进入 Billing，等待3秒...")
-        time.sleep(3)
+        # === 3. 点击 Billing 图标进入账单页 (增加容错与等待) ===
+        print("🔍 正在定位 Billing 图标...")
+        try:
+            # 增加显式等待，确保按钮出现在 DOM 中且可见
+            billing_btn = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, 'btn-billing-compact')))
+            
+            # 模拟真人：先滚动到按钮位置
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", billing_btn)
+            time.sleep(1)
+            
+            # 尝试点击
+            billing_btn.click()
+            print("✅ 已点击 Billing，等待3秒...")
+            time.sleep(3)
+        except Exception as e:
+            print(f"❌ 定位 Billing 失败，尝试备用方案 (JS点击)...")
+            # 备用方案：直接用 JS 触发点击，绕过遮挡问题
+            driver.execute_script("document.querySelector('.btn-billing-compact').click();")
+            time.sleep(3)
 
         # === 4. 点击 View Details 进入详情页 (JS 1:1) ===
         print("🔍 点击 View Details...")
@@ -153,7 +169,8 @@ def run_task():
 
         # === 7. 获取当前状态 (JS 1:1) ===
         before_hours_text = driver.find_element(By.CSS_SELECTOR, time_selector).text
-        before_hours = int(re.sub(r'[^0-9]', '', before_hours_text)) or 0
+        digits = re.sub(r'[^0-9]', '', before_hours_text or '')
+        before_hours = int(digits) if digits else 0
 
         # === 8. 定位按钮状态 (JS 1:1) ===
         renew_btn = driver.find_element(By.ID, 'renew-free-server-btn')
@@ -226,7 +243,8 @@ def run_task():
             wait.until(lambda d: re.search(r'\d+', d.find_element(By.CSS_SELECTOR, time_selector).text))
         except: pass
         after_hours_text = driver.find_element(By.CSS_SELECTOR, time_selector).text
-        after_hours = int(re.sub(r'[^0-9]', '', after_hours_text)) or 0
+        digits = re.sub(r'[^0-9]', '', before_hours_text or '')
+        before_hours = int(digits) if digits else 0
         
         print(f"📊 判定数据: 之前 {before_hours}h -> 之后 {after_hours}h")
 
@@ -263,10 +281,25 @@ def run_task():
             send_telegram(message)
             print(" 🚨 续期失败 🚨 ")
 
-    except Exception as err:
+except Exception as err:
+        # 统一打印错误日志
+        print(f" ❌ 运行时错误 ❌ : {err}")
+        
+        # 1. 尝试保存页面源码（用于排查为何找不到 Billing 按钮）
+        try:
+            if driver:
+                with open("error_page.html", "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+                print("💾 已保存错误页面源码至 error_page.html")
+        except Exception as save_err:
+            print(f"⚠️ 源码保存失败: {save_err}")
+
+        # 2. 发送 TG 通知 (排除掉已经在 check_proxy_ip 里发过通知的情况)
         if "Proxy Check Failed" not in str(err):
-            print(f" ❌ 运行时错误 ❌ : {err}")
-            send_telegram(f"🚨 <b>GreatHost 脚本报错</b>\n<code>{err}</code>")
+            # 获取当前 URL 能极大帮助定位是卡在登录页还是后台页
+            current_url = driver.current_url if driver else "未知"
+            send_telegram(f"🚨 <b>GreatHost 脚本报错</b>\n\n<b>错误详情:</b>\n<code>{str(err)}</code>\n\n<b>📍 报错位置:</b> {current_url}")
+             
     finally:
         if driver:
             driver.quit()
