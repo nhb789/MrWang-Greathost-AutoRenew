@@ -12,6 +12,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from zoneinfo import ZoneInfo
+from urllib.parse import urlparse
 
 # ================= 环境变量获取 =================
 EMAIL = os.getenv("GREATHOST_EMAIL") or ""
@@ -45,7 +46,42 @@ STATUS_MAP = {
 
 def get_now_shanghai():
     return datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y/%m/%d %H:%M:%S')
+    
+def mask_host(host):
+    if not host:
+        return "Unknown"
+    
+    # --- 处理 IPv6 ---
+    if ":" in host:
+        parts = host.split(':')
+        if len(parts) > 3:
+            # 保留前两段和最后一段
+            return f"{parts[0]}:{parts[1]}:****:{parts[-1]}"
+        return f"{host[:9]}****"
+    
+    # --- 处理 IPv4 ---
+    parts = host.split('.')
+    if len(parts) == 4:
+        # 格式：第一段.第二段.***.第四段
+        return f"{parts[0]}.{parts[1]}.***.{parts[3]}"
+    
+    # --- 处理域名或其他 ---
+    if len(parts) >= 3:
+        return f"{parts[0]}.****.{parts[-1]}"
+        
+    return f"{host[:4]}****"
+    
+def get_proxy_expected_host():    
+    raw_proxy = (os.getenv("PROXY_URL") or "").strip()
+    if not raw_proxy: return None   
+    try:
+        # 兼容处理不带协议头的字符串
+        temp_url = raw_proxy if "://" in raw_proxy else f"http://{raw_proxy}"
+        host = urlparse(temp_url).hostname
+        return host.lower().replace("[", "").replace("]", "") if host else None
+    except: return None
 
+EXPECTED_HOST = get_proxy_expected_host()
 
 def check_proxy_ip(driver):
     if not PROXY_URL.strip():
@@ -55,52 +91,52 @@ def check_proxy_ip(driver):
     proxy_dict = {"http": PROXY_URL, "https": PROXY_URL}
     now = get_now_shanghai()
     
-    try:        
-        resp = requests.get("https://api.ipify.org?format=json", proxies=proxy_dict, timeout=12)
-        current_ip = resp.json().get('ip')      
+    try:      
+        # 1. 尝试连接 (死掉检查)
+        resp = requests.get("https://api64.ipify.org?format=json", proxies=proxy_dict, timeout=12)
+        current_ip = resp.json().get('ip').lower()      
         print(f"✅ 代理预检成功，当前 IP: {current_ip}")
 
-        # 2. IP 段强制校验
-        if not current_ip.startswith("138.68"):
-            error_info = f"IP 地址({current_ip})不符合预期段(138.68)，疑似代理未生效！"
-            print(f"⚠️ {error_info}")           
-            
-            msg = (f"🚨 <b>GreatHost IP 校验拦截</b>\n\n"
-                   f"❌ <b>详情:</b> <code>{error_info}</code>\n"
-                   f"📅 <b>时间:</b> {now}\n"
-                   f"⚠️ <b>警告:</b> 脚本熔断")
-            send_telegram(msg)
-            raise Exception(error_info)
+        # 2. 安全比对 (叛变检查)
+        is_safe = True
+        if EXPECTED_HOST:           
+            match_full = (EXPECTED_HOST in current_ip) or (current_ip in PROXY_URL.lower())
+            ipv6_prefix_match = (":" in current_ip and ":" in EXPECTED_HOST and 
+                                 current_ip.split(':')[:4] == EXPECTED_HOST.split(':')[:4])
+            if not (match_full or ipv6_prefix_match):
+                is_safe = False
 
-    except Exception as e:
-        clean_error = str(e).replace('<', '[').replace('>', ']')
-        error_info = f"代理预检或校验失败: {clean_error}"
-        print(f"❌ {error_info}")
-        
-        # 排除掉上面手动 raise 的情况，防止重复发送 TG
-        if "IP 校验拦截" not in error_info:
-            msg = (f"🚨 <b>GreatHost 代理预检失败</b>\n\n"
-                   f"❌ <b>详情:</b> <code>{clean_error}</code>\n"
-                   f"📅 <b>时间:</b> {now}")
-            send_telegram(msg)
-        raise Exception(error_info)
+        if not is_safe:
+            # 抛出带标识的异常，交给下方 except 统一处理
+            m_exp, m_cur = mask_host(EXPECTED_HOST), mask_host(current_ip)
+            raise Exception(f"BLOCK_ERR|{m_exp}|{m_cur}")
 
-    # 3. 浏览器层面的最终确认
-    try:
-        print("🌍 [Check] 正在通过浏览器确认代理响应...")
+        # 3. 浏览器确认 (忠诚检查最后一步)
         driver.set_page_load_timeout(30)
         driver.get("https://api.ipify.org?format=json")
         return True
+
     except Exception as e:
         clean_error = str(e).replace('<', '[').replace('>', ']')
-        error_info = f"浏览器访问代理超时: {clean_error}"
-        print(f"❌ {error_info}")
         
-        msg = (f"🚨 <b>GreatHost 浏览器检测超时</b>\n\n"
-               f"❌ <b>详情:</b> <code>{clean_error}</code>\n"
-               f"📅 <b>时间:</b> {now}")
+        # --- 统一出口逻辑 ---
+        if "BLOCK_ERR" in clean_error:
+            # 叛变拦截：IP 不匹配
+            _, m_exp, m_cur = clean_error.split('|')
+            msg = (f"🚨 <b>GreatHost IP 校验拦截</b>\n\n"
+                   f"❌ <b>配置代理:</b> <code>{m_exp}</code>\n"
+                   f"❌ <b>实际出口:</b> <code>{m_cur}</code>\n"
+                   f"⚠️ <b>警告:</b> 代理已偏离，脚本熔断")
+        else:
+            # 死掉/超时：连接不通
+            msg = (f"🚨 <b>GreatHost 代理预检失败</b>\n\n"
+                   f"❌ <b>详情:</b> <code>{clean_error}</code>\n"
+                   f"⚠️ <b>结果:</b> 连接超时或服务不可用")
+
+        msg += f"\n📅 <b>时间:</b> {now}"
+        print(f"❌ {msg.split('<b>')[1].split('</b>')[0]}: {clean_error}")
         send_telegram(msg)
-        raise Exception(error_info)    
+        raise Exception(clean_error)
 
 def get_browser():
     sw_options = {'proxy': {'http': PROXY_URL, 'https': PROXY_URL, 'no_proxy': 'localhost,127.0.0.1'}}
