@@ -46,28 +46,59 @@ STATUS_MAP = {
 
 def get_now_shanghai():
     return datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y/%m/%d %H:%M:%S')
+
+# 通用按钮点击逻辑：- 滚动到中央- 随机等待- safe_click- JS 强制点击兜底- 等待3秒       
+def click_button(driver, element, desc, js_selector=None):        
+        try:
+                # 滚动到视图中央
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+                # 随机等待
+                delay = random.uniform(1.0, 3.0)
+                print(f"⏳ {desc} 点击前随机等待 {delay:.2f} 秒...")
+                time.sleep(delay)
+            
+                # safe_click（主力点击）
+                safe_click(driver, element)
+                print(f"✅ safe_click 成功触发 {desc}")
+                return True
+            
+        except Exception as e:
+                print(f"⚠️ safe_click 触发 {desc} 失败，尝试 JS 兜底: {e}")
+                # JS 兜底
+                try:
+                        if js_selector:
+                                driver.execute_script(f"document.querySelector('{js_selector}').click();")
+                        else:
+                                driver.execute_script("arguments[0].click();", element)
+                        print(f"⚡ JS 强制点击 {desc} 成功")
+                        return True
+
+                except Exception as e2:
+                        print(f"🚨 JS 强制点击 {desc} 也失败: {e2}")
+                        return False
+        # 点击后等待 3 秒（统一行为）
+        time.sleep(3)
+        return True
     
 def mask_host(host):
     if not host:
         return "Unknown"
-    
+        
     # --- 处理 IPv6 ---
     if ":" in host:
         parts = host.split(':')
         if len(parts) > 3:
             # 保留前两段和最后一段
             return f"{parts[0]}:{parts[1]}:****:{parts[-1]}"
-        return f"{host[:9]}****"
-    
+        return f"{host[:9]}****"    
     # --- 处理 IPv4 ---
     parts = host.split('.')
     if len(parts) == 4:
         # 格式：第一段.第二段.***.第四段
-        return f"{parts[0]}.{parts[1]}.***.{parts[3]}"
-    
+        return f"{parts[0]}.{parts[1]}.***.{parts[3]}"    
     # --- 处理域名或其他 ---
     if len(parts) >= 3:
-        return f"{parts[0]}.****.{parts[-1]}"
+        return f"{parts[0]}.****.{parts[-1]}"    
         
     return f"{host[:4]}****"
     
@@ -241,76 +272,34 @@ def run_task():
                 if any(x in status_text.lower() for x in ['stopped', 'offline']):
                         print("⚡ 检测到服务器离线，准备执行启动...")
 
-                        start_btn = driver.find_element(By.CSS_SELECTOR, 'button.btn-start, .action-start')
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", start_btn)
-
-                        delay = random.uniform(1.0, 3.0)
-                        print(f"⏳ 启动按钮点击前随机等待 {delay:.2f} 秒...")
-                        time.sleep(delay)
-
-                        # ⭐ 第一层：safe_click（唯一一次）
-                        safe_click(driver, start_btn)
-                        print("🚀 safe_click 成功触发启动按钮")
-                        server_started = True
+                        start_btn = driver.find_element(By.CSS_SELECTOR, 'button.btn-start, .action-start')               
+                        # ⭐ 统一封装点击（自动滚动 + 随机等待 + safe_click + JS兜底）
+                        click_button(driver, start_btn, "启动按钮", "button.btn-start, .action-start")
+                        server_started = True                        
 
         except Exception as e:
-                print(f"⚠️ safe_click 启动失败，尝试 JS 强制点击兜底: {e}")
-                try:
-                        driver.execute_script("document.querySelector('button.btn-start, .action-start').click();")
-                        print("⚡ JS 强制点击启动成功")
-                        server_started = True
-                except Exception as e2:
-                        print(f"🚨 JS 强制点击启动也失败: {e2}")
-
-        
+                print(f"⚠️ 启动按钮流程异常: {e}")       
+            
       # === 3. 点击 Billing 图标（随机等待 + safe_click + JS 兜底）===
         print("🔍 正在定位 Billing 图标...")
         try:
                 billing_btn = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, 'btn-billing-compact')))
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", billing_btn)
-            
-                delay = random.uniform(1.0, 3.0)
-                print(f"⏳ 点击前随机等待 {delay:.2f} 秒...")
-                time.sleep(delay)
-
-                # ⭐ 第一层：safe_click（主力点击）
-                safe_click(driver, billing_btn)
-                print("✅ safe_click 成功触发 Billing，等待 3 秒...")
-                time.sleep(3)
-
+                # ⭐ 统一封装点击（滚动中央 + 随机等待 + safe_click + JS兜底）
+                click_button(driver, billing_btn, "Billing 图标", ".btn-billing-compact")
+                
         except Exception as e:
-                print(f"⚠️ safe_click 失败，尝试 JS 强制点击兜底: {e}")
-                try:
-                        driver.execute_script("document.querySelector('.btn-billing-compact').click();")
-                        print("⚡ JS 强制点击成功")
-                except Exception as e2:
-                        print(f"🚨 JS 强制点击也失败: {e2}")
-                time.sleep(3)
-
+                print(f"⚠️ Billing 点击失败: {e}")
+                
         # === 4. 点击 View Details（随机等待 + safe_click + JS 兜底）===
         print("🔍 正在定位 View Details 链接...")
         try:
                 view_details_btn = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, 'View Details')))
-                # 滚动到视图中心
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_details_btn)
-                
-                delay = random.uniform(1.0, 3.0)
-                print(f"⏳ View Details 点击前随机等待 {delay:.2f} 秒...")
-                time.sleep(delay)
-
-                # ⭐ 第一层：safe_click（唯一一次）
-                safe_click(driver, view_details_btn)
-                print("✅ safe_click 成功进入详情页，等待 3 秒...")
+                # ⭐ 统一封装点击（自动滚动 + 随机等待 + safe_click + JS兜底）
+                click_button(driver, view_details_btn, "View Details", "a[href*='details']")                
                 time.sleep(3)
 
         except Exception as e:
-                print(f"⚠️ safe_click 失败，尝试 JS 强制点击兜底: {e}")
-                try:
-                        driver.execute_script("document.querySelector('a[href*=\"details\"]').click();")
-                        print("⚡ JS 强制点击成功进入详情页")
-                except Exception as e2:
-                        print(f"🚨 JS 强制点击也失败: {e2}")
-                time.sleep(3)
+                print(f"⚠️ View Details 点击流程异常: {e}")
 
         # === 5. 提前提取 ID (JS 1:1) ===
         server_id = driver.current_url.split('/')[-1] or 'unknown'
@@ -354,24 +343,11 @@ def run_task():
 
       # === 10. 执行续期（随机等待 + safe_click + JS 兜底）===
         print("⚡ 启动续期点击流程...")
-        try:
-                # 滚动到视图中心
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", renew_btn)
-                
-                delay = random.uniform(1.0, 3.0)
-                print(f"⏳ 续期按钮点击前随机等待 {delay:.2f} 秒...")
-                time.sleep(delay)
-                # ⭐ 第一层：safe_click（唯一一次）
-                safe_click(driver, renew_btn)
-                print("👉 safe_click 成功触发续期按钮")
-            
+        try:              
+                click_button(driver, renew_btn, "续期按钮")
+                            
         except Exception as e:
-                print(f"⚠️ safe_click 续期失败，尝试 JS 强制点击兜底: {e}")
-                try:
-                        driver.execute_script("arguments[0].click();", renew_btn)
-                        print("⚡ JS 强制点击续期成功")
-                except Exception as e2:
-                        print(f"🚨 JS 强制点击续期也失败: {e2}")
+                print(f"⚠️ 续期按钮点击流程异常: {e}")
 
         # 深度等待，确保后端写入
         print("⏳ 正在进入 20 秒深度等待，确保后端写入数据...")
