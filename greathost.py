@@ -104,37 +104,40 @@ def check_proxy_ip(driver):
 
 def get_browser():
     sw_options = {'proxy': {'http': PROXY_URL, 'https': PROXY_URL, 'no_proxy': 'localhost,127.0.0.1'}}
-    chrome_options = Options()  
-    # 基础防封参数
-    chrome_options.add_argument("--headless=new") # GitHub Actions 必须带这个，除非用 xvfb
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option('useAutomationExtension', False)    
-    # 模拟真实硬件特征
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--lang=en-US")
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
     driver = webdriver.Chrome(options=chrome_options, seleniumwire_options=sw_options)
-
-    # 抹除核心指纹
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    })
-    
     return driver
 
-def type_like_human(element, text):
-    """模拟真人打字：随机停顿输入每个字符"""
-    for char in text:
-        element.send_keys(char)
-        # 每个字母之间随机停顿 0.1 到 0.3 秒
-        time.sleep(random.uniform(0.1, 0.3))
+def safe_send_keys(element, text):    
+    try:
+        element.clear()
+    except Exception:
+        pass
+    element.send_keys(text)
+    time.sleep(0.13)
+
+def safe_click(driver, element):
+    try:
+        element.click()
+    except Exception as e:
+        print("⚠️ 普通点击失败，尝试 JS 兜底:", e)
+        try:
+            driver.execute_script("arguments[0].click();", element)
+        eexcept Exception as ex:
+            print("❌ JS 点击也失败:", ex)
+            raise
     
 def run_task():
     # 随机延迟启动
-    wait_time = random.randint(1, 300)
-    print(f"⏳ 为了模拟真人，随机等待 {wait_time} 秒后启动...")
+    wait_time = random.randint(1, 100)
+    print(f"⏳ 模拟真人，随机等待 {wait_time} 秒后启动...")
     time.sleep(wait_time)
     
     server_id = "未知"
@@ -150,24 +153,31 @@ def run_task():
 
         # === 登录流程 (模拟真人打字版) ===
         wait = WebDriverWait(driver, 15)
-        print("🔑 正在执行登录 (模拟真人输入)...")
+        print("🔑 正在执行登录 (模拟人输入)...")
         driver.get("https://greathost.es/login")
         
         # 1. 输入邮箱
         email_input = wait.until(EC.presence_of_element_located((By.NAME, "email")))
-        email_input.click() # 先点击一下，模拟鼠标聚焦
-        time.sleep(1)
-        type_like_human(email_input, EMAIL)
-        
+        try:
+            email_input.click()  # 聚焦
+        except Exception:
+            pass
+        time.sleep(0.3)
+        safe_send_keys(email_input, EMAIL)
+
         # 2. 输入密码
-        password_input = driver.find_element(By.NAME, "password")
-        password_input.click()
-        time.sleep(0.5)
-        type_like_human(password_input, PASSWORD)
-        
-        # 3. 随机发呆一秒再点登录
-        time.sleep(random.uniform(1, 2))
-        driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
+        password_input = wait.until(EC.presence_of_element_located((By.NAME, "password")))
+        try:
+            password_input.click()
+        except Exception:
+            pass
+        time.sleep(0.4)
+        safe_send_keys(password_input, PASSWORD)
+
+        # 3. 短暂等待后点击登录（保留原意的短暂停顿）
+        time.sleep(random.uniform(0.8, 1.6))
+        submit_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
+        safe_click(driver, submit_btn)        
         
         wait.until(EC.url_contains("/dashboard"))
         print("✅ 登录成功！")
@@ -274,10 +284,12 @@ def run_task():
         print(f"🆔 ID: {server_id} | ⏰ 目前: {before_hours}h | 🔘 状态: {'冷却中' if 'Wait' in btn_content else '可续期'}")
 
         if 'Wait' in btn_content:
-            wait_time = re.search(r'\d+', btn_content).group(0) or "??"
+            m = re.search(r'\d+', btn_content)
+            wait_time = m.group(0) if m else "??"
             
             # 直接使用全局变量 STATUS_MAP
-            icon, name = STATUS_MAP.get(status_text, ["⚪", status_text])
+            st = status_text if 'status_text' in locals() and status_text else "Unknown"
+            icon, name = STATUS_MAP.get(st, ["⚪", st])
             
             if server_started:
                 status_display = f"✅ 已触发启动 ({icon} {name})"
@@ -290,7 +302,12 @@ def run_task():
                        f"📊 <b>当前累计:</b> {before_hours}h\n"
                        f"🚀 <b>服务器状态:</b> {status_display}\n"
                        f"📅 <b>检查时间:</b> {get_now_shanghai()}")
+            print("ℹ️ 发送冷却通知:", message)
             send_telegram(message)
+            try:
+                if driver:
+                    driver.quit()
+            except: pass        
             return
 
      # === 10. 执行续期 (模拟物理动作) ===
