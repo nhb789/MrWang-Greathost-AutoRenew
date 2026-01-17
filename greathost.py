@@ -235,28 +235,33 @@ def run_task():
      # === 2. 状态检查与自动开机 (针对新版小圆点 UI 优化) ===
         print("📊 正在检查服务器实时状态...")
         try:
-            status_indicator = wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'server-status-indicator')))
-            status_text = status_indicator.get_attribute('title') or 'unknown'
-            icon, name = STATUS_MAP.get(status_text, ["🟢", "运行正常"])
-            status_display = f"{icon} {name}" 
-            print(f"📡 实时状态抓取成功: {status_display}")
-            
-           # 判定是否需要启动
-            if any(x in status_text.lower() for x in ['stopped', 'offline']):
-                print(f"⚡ 检测到离线，尝试触发启动...")
-                try:
-                    start_btn = driver.find_element(By.CSS_SELECTOR, 'button.btn-start, .action-start')
-                    # 模拟真人点击：先滚动再点
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", start_btn)
-                    time.sleep(1)
-                    safe_click(driver, start_btn)
-                    server_started = True
-                    status_display = f"✅ 已触发启动 ({status_display})"
-                    print("✅ 启动指令已发出")
-                except: pass
+                status_indicator = wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'server-status-indicator')))
+                status_text = status_indicator.get_attribute('title') or 'unknown'
+
+                if any(x in status_text.lower() for x in ['stopped', 'offline']):
+                        print("⚡ 检测到服务器离线，准备执行启动...")
+
+                        start_btn = driver.find_element(By.CSS_SELECTOR, 'button.btn-start, .action-start')
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", start_btn)
+
+                        delay = random.uniform(1.0, 3.0)
+                        print(f"⏳ 启动按钮点击前随机等待 {delay:.2f} 秒...")
+                        time.sleep(delay)
+
+                        # ⭐ 第一层：safe_click（唯一一次）
+                        safe_click(driver, start_btn)
+                        print("🚀 safe_click 成功触发启动按钮")
+                        server_started = True
+
         except Exception as e:
-            print(f"⚠️ 状态检查跳过: {e}")
-      
+                print(f"⚠️ safe_click 启动失败，尝试 JS 强制点击兜底: {e}")
+                try:
+                        driver.execute_script("document.querySelector('button.btn-start, .action-start').click();")
+                        print("⚡ JS 强制点击启动成功")
+                        server_started = True
+                except Exception as e2:
+                        print(f"🚨 JS 强制点击启动也失败: {e2}")
+
         
       # === 3. 点击 Billing 图标（随机等待 + safe_click + JS 兜底）===
         print("🔍 正在定位 Billing 图标...")
@@ -282,23 +287,30 @@ def run_task():
                         print(f"🚨 JS 强制点击也失败: {e2}")
                 time.sleep(3)
 
-        # === 4. 点击 View Details 进入详情页 (增加稳健性) ===
+        # === 4. 点击 View Details（随机等待 + safe_click + JS 兜底）===
         print("🔍 正在定位 View Details 链接...")
         try:
-            # 等待 View Details 链接出现并可点击
-            view_details_btn = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, 'View Details')))
-            # 模拟真人：滚动到视图中心
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_details_btn)
-            time.sleep(random.uniform(1, 3))
-            
-            safe_click(driver, view_details_btn)
-            print("✅ 已进入详情页，等待3秒加载数据...")
-            time.sleep(3)
+                view_details_btn = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, 'View Details')))
+                # 滚动到视图中心
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_details_btn)
+                
+                delay = random.uniform(1.0, 3.0)
+                print(f"⏳ View Details 点击前随机等待 {delay:.2f} 秒...")
+                time.sleep(delay)
+
+                # ⭐ 第一层：safe_click（唯一一次）
+                safe_click(driver, view_details_btn)
+                print("✅ safe_click 成功进入详情页，等待 3 秒...")
+                time.sleep(3)
+
         except Exception as e:
-            print(f"❌ 定位 View Details 失败: {e}")
-            # 备用方案：尝试通过 CSS 选择器定位（有时文本匹配会失效）
-            driver.execute_script("document.querySelector('a[href*=\"details\"]').click();")
-            time.sleep(3)
+                print(f"⚠️ safe_click 失败，尝试 JS 强制点击兜底: {e}")
+                try:
+                        driver.execute_script("document.querySelector('a[href*=\"details\"]').click();")
+                        print("⚡ JS 强制点击成功进入详情页")
+                except Exception as e2:
+                        print(f"🚨 JS 强制点击也失败: {e2}")
+                time.sleep(3)
 
         # === 5. 提前提取 ID (JS 1:1) ===
         server_id = driver.current_url.split('/')[-1] or 'unknown'
@@ -340,20 +352,28 @@ def run_task():
             except: pass        
             return
 
-     # === 10. 执行续期 (模拟物理动作) ===
-        print("⚡ 启动高仿真续期点击...")
+      # === 10. 执行续期（随机等待 + safe_click + JS 兜底）===
+        print("⚡ 启动续期点击流程...")
         try:
-            # 1. 物理模拟点击 (防检测优先)
-            actions = ActionChains(driver)
-            safe_click(driver, renew_btn)
-            print(f"👉 物理模拟点击成功 (偏移: {off_x}, {off_y})")
-           
+                # 滚动到视图中心
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", renew_btn)
+                
+                delay = random.uniform(1.0, 3.0)
+                print(f"⏳ 续期按钮点击前随机等待 {delay:.2f} 秒...")
+                time.sleep(delay)
+                # ⭐ 第一层：safe_click（唯一一次）
+                safe_click(driver, renew_btn)
+                print("👉 safe_click 成功触发续期按钮")
+            
         except Exception as e:
-            print(f"🚨 物理点击失败，尝试安全点击兜底: {e}")
-            # 2. 如果物理点击失败，调用你的 safe_click 确保任务完成
-            safe_click(driver, renew_btn)
+                print(f"⚠️ safe_click 续期失败，尝试 JS 强制点击兜底: {e}")
+                try:
+                        driver.execute_script("arguments[0].click();", renew_btn)
+                        print("⚡ JS 强制点击续期成功")
+                except Exception as e2:
+                        print(f"🚨 JS 强制点击续期也失败: {e2}")
 
-        # === 11. 深度等待同步 (JS 1:1) ===
+        # 深度等待，确保后端写入
         print("⏳ 正在进入 20 秒深度等待，确保后端写入数据...")
         time.sleep(20)
 
