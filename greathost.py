@@ -47,6 +47,18 @@ STATUS_MAP = {
 def get_now_shanghai():
     return datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y/%m/%d %H:%M:%S')
 
+# === 统一封装步骤===
+def perform_step(driver, wait, desc, locator, js_selector=None):
+        try:
+                print(f"🔍 正在定位 {desc} ...")
+                element = wait.until(EC.element_to_be_clickable(locator))
+
+                click_button(driver, element, desc, js_selector)
+
+        except Exception as e:
+                print(f"⚠️ {desc} 执行失败: {e}")
+
+
 # 通用按钮点击逻辑：- 滚动到中央- 随机等待- safe_click- JS 强制点击兜底- 等待3秒       
 def click_button(driver, element, desc, js_selector=None):        
         try:
@@ -272,34 +284,32 @@ def run_task():
                 if any(x in status_text.lower() for x in ['stopped', 'offline']):
                         print("⚡ 检测到服务器离线，准备执行启动...")
 
-                        start_btn = driver.find_element(By.CSS_SELECTOR, 'button.btn-start, .action-start')               
-                        # ⭐ 统一封装点击（自动滚动 + 随机等待 + safe_click + JS兜底）
-                        click_button(driver, start_btn, "启动按钮", "button.btn-start, .action-start")
-                        server_started = True                        
+                        perform_step(      
+                                driver,
+                                wait
+                                "启动按钮",
+                                (By.CSS_SELECTOR, 'button.btn-start, .action-start'),     
+                                "button.btn-start, .action-start"
+                        )
+                        server_started = True
 
-        except Exception as e:
-                print(f"⚠️ 启动按钮流程异常: {e}")       
-            
-      # === 3. 点击 Billing 图标（随机等待 + safe_click + JS 兜底）===
-        print("🔍 正在定位 Billing 图标...")
-        try:
-                billing_btn = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, 'btn-billing-compact')))
-                # ⭐ 统一封装点击（滚动中央 + 随机等待 + safe_click + JS兜底）
-                click_button(driver, billing_btn, "Billing 图标", ".btn-billing-compact")
+      # === 3. 点击 Billing 图标（统一封装步骤）===
+        perform_step(
+                driver,
+                wait,
+                "Billing 图标",
+                (By.CLASS_NAME, 'btn-billing-compact'),
+                ".btn-billing-compact"
+         )   
                 
-        except Exception as e:
-                print(f"⚠️ Billing 点击失败: {e}")
-                
-        # === 4. 点击 View Details（随机等待 + safe_click + JS 兜底）===
-        print("🔍 正在定位 View Details 链接...")
-        try:
-                view_details_btn = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, 'View Details')))
-                # ⭐ 统一封装点击（自动滚动 + 随机等待 + safe_click + JS兜底）
-                click_button(driver, view_details_btn, "View Details", "a[href*='details']")                
-                time.sleep(3)
-
-        except Exception as e:
-                print(f"⚠️ View Details 点击流程异常: {e}")
+        # === 4. 点击 View Details（统一封装步骤）===
+        perform_step(
+                driver,
+                wait,
+                "View Details",
+                (By.LINK_TEXT, 'View Details'),
+                "a[href*='details']"
+         )   
 
         # === 5. 提前提取 ID (JS 1:1) ===
         server_id = driver.current_url.split('/')[-1] or 'unknown'
@@ -341,13 +351,13 @@ def run_task():
             except: pass        
             return
 
-      # === 10. 执行续期（随机等待 + safe_click + JS 兜底）===
-        print("⚡ 启动续期点击流程...")
-        try:              
-                click_button(driver, renew_btn, "续期按钮")
-                            
-        except Exception as e:
-                print(f"⚠️ 续期按钮点击流程异常: {e}")
+       # === 10. 执行续期（统一封装步骤）===
+        perform_step(
+                driver,
+                wait,
+                "续期按钮",
+                (By.ID, 'renew-free-server-btn')                
+         )   
 
         # 深度等待，确保后端写入
         print("⏳ 正在进入 20 秒深度等待，确保后端写入数据...")
