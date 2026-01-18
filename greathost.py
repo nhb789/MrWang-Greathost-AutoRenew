@@ -113,13 +113,20 @@ def check_proxy_ip(driver):
 
 # Browser helpers
 def get_browser():
-    sw = {'proxy': {'http': PROXY_URL, 'https': PROXY_URL, 'no_proxy': 'localhost,127.0.0.1'}}
+    # 1. 基础浏览器参数配置
     opts = Options()
     opts.add_argument("--headless=new"); opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage"); opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--lang=en-US")
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    return webdriver.Chrome(options=opts, seleniumwire_options=sw)
+    # 2. 只有当代理为空时，直连
+    if PROXY_URL and str(PROXY_URL).strip().lower() != "none":
+        sw = {'proxy': {'http': PROXY_URL, 'https': PROXY_URL, 'no_proxy': 'localhost,127.0.0.1'}}
+        print(f"Log: Browser starting with proxy.")
+        return webdriver.Chrome(options=opts, seleniumwire_options=sw)
+    else:        
+        print("Log: PROXY_URL is empty, launching in direct mode.")
+        return webdriver.Chrome(options=opts)
 
 def safe_send_keys(el, text):
     try: el.clear()
