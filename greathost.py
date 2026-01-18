@@ -280,11 +280,12 @@ def run_task():
     except Exception as e:
         err = str(e).replace('<','[').replace('>',']')
         print("Runtime error:", err)
-        if all(k not in err for k in ["BLOCK_ERR", "代理预检"]):
+        proxy_keys = ["BLOCK_ERR", "代理预检", "SOCKSHTTPSConnectionPool", "ConnectTimeoutError"]  # 可将报错信息中常见的代理错误关键字加入过滤，避免二次通知
+        if all(k not in err for k in proxy_keys):
             try: loc = driver.current_url if driver else "未知"
             except: loc = "获取失败"
             send_notice("business_error", [("🆔","ID",f"<code>{server_id}</code>"),("❌","详情",f"<code>{err}</code>"),("📍","位置",loc)])
-        else: print("Proxy error, skip business notify.")
+        else: print("Proxy/Network error, skip business notify.")
     finally:
         if driver:
             try: driver.quit(); print("Browser closed")
