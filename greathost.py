@@ -198,7 +198,7 @@ def get_hours(driver, selector="#accumulated-time"):
             except: text = ""
         num = int(re.sub(r'\D', '', text)) if re.search(r'\d', text or '') else 0
         if num: return num, text.strip()
-        time.sleep(3)
+        time.sleep(random.uniform(2.5, 4.5))
     return 0, (text or "").strip()
 
 def get_error_msg(driver):
