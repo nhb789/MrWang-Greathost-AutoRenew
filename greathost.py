@@ -193,9 +193,13 @@ def get_error_msg(driver):
 
 def renew_click(driver, wait):
     perform_step(driver, wait, "Renew button", (By.ID,'renew-free-server-btn'))
+    time.sleep(1); msg = get_error_msg(driver)
+    if msg: print("Captured msg:", msg)
+    
     print("Waiting 20s for backend write"); time.sleep(20)
     try: driver.refresh()
     except: print("Refresh failed"); time.sleep(2)
+    return msg 
 
 def confirm_and_start(driver, wait):
     final = "运行正常"; started = False
@@ -238,20 +242,20 @@ def run_task():
             except: pass
             return
 
-        renew_click(driver, wait)
-        err_msg = get_error_msg(driver)
+        err_msg = renew_click(driver, wait)
         after, _ = get_hours(driver)
         print("After hours:", after)
         
         if after == before:                
-                time.sleep(15)
-                try: driver.refresh()
-                except: pass
+            time.sleep(15)
+            try: 
+                driver.refresh()
                 after, _ = get_hours(driver)
-                print("After hours (retry):", after)
+                print(f"After hours (retry): {after}")
+            except: pass
 
-        print(f"Final after hours used for判定: {after}")
-
+        print(f"Final after hours used for 判定: {after}")
+# === 15. 状态确认与启动检测 ===
         final_status, started_flag = confirm_and_start(driver, wait)
         if started_flag:
                 icon, name = STATUS_MAP.get(final_status, ["❓", final_status])
@@ -259,15 +263,15 @@ def run_task():
         else:
                 icon, name = STATUS_MAP.get(final_status, ["🟢", "运行正常"])
                 status_display = f"{icon} {name}"
-
+# === 16. 分发最终通知 ===
         is_success = after > before
-        is_maxed = ("5 días" in err_msg) or (before >= 120) or (after == before and before >= 108)
-
+        is_maxed = ("5 días" in err_msg) or (before > 108 and after == before)
+                
         if is_success:
             fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","增加时间",f"{before} ➔ {after}h"),("🚀","服务器状态",status_display)]
             send_notice("renew_success", fields)
         elif is_maxed:
-            fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","剩余时间",f"{after}h"),("🚀","服务器状态",status_display),("💡","提示","累计时长较高，暂无需续期。")]
+            fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","剩余时间",f"{after}h"),("🚀","服务器状态",status_display),("💡","提示","累计时长较高（已近120h），暂无需续期。")]
             send_notice("maxed_out", fields)
         else:
             fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","剩余时间",f"{before}h"),("🚀","服务器状态",status_display),("💡","提示","时间未增加，请手动检查确认。")]
