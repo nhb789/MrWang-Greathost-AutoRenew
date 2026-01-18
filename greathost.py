@@ -65,13 +65,13 @@ def format_fields(fields):
 def send_notice(kind, fields):
     titles = {
         "renew_success":"🎉 <b>GreatHost 续期成功</b>",
-        "maxed_out":"⚠️ <b>GreatHost 已达上限</b>",
+        "maxed_out":"🈵 <b>GreatHost 已达上限</b>",
         "cooldown":"⏳ <b>GreatHost 还在冷却中</b>",
         "renew_failed":"⚠️ <b>GreatHost 续期未生效</b>",
         "business_error":"🚨 <b>GreatHost 脚本业务报错</b>",
-        "proxy_error":"🚨 <b>GreatHost 代理预检失败</b>"
+        "proxy_error":"🚫 <b>GreatHost 代理预检失败</b>"
     }
-    title = titles.get(kind, "ℹ️ <b>GreatHost 通知</b>")
+    title = titles.get(kind, "‼️ <b>GreatHost 通知</b>")
     body = format_fields(fields)
     msg = f"{title}\n\n{body}\n📅 <b>时间:</b> {now_shanghai()}"
     send_telegram(msg)
