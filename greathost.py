@@ -32,14 +32,24 @@ def now_shanghai():
     return datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y/%m/%d %H:%M:%S')
 
 def calculate_hours(date_str):
-    """修复 0h 解析问题"""
     try:
-        if not date_str: return 0
-        clean_date = re.sub(r'\.\d+Z$', 'Z', date_str)
+        if not date_str: 
+            return 0
+        
+        clean_date = re.sub(r'\.\d+Z$', 'Z', str(date_str))
         expiry = datetime.fromisoformat(clean_date.replace('Z', '+00:00'))
         now = datetime.now(timezone.utc)
-        return max(0, int((expiry - now).total_seconds() / 3600))
-    except: return 0
+        
+        # 4. 计算小时差
+        diff = (expiry - now).total_seconds() / 3600
+        
+        # 5. 如果差值小于 0，说明已过期，返回 0；否则返回整数小时
+        result = max(0, int(diff))
+        print(f"🕒 时间计算调试: 原始={date_str} -> 解析后={clean_date} -> 剩余={result}h")
+        return result
+    except Exception as e:
+        print(f"⚠️ 时间解析失败 ({date_str}): {e}")
+        return 0
 
 def fetch_api(driver, url, method="GET"):
     script = f"return fetch('{url}', {{method:'{method}'}}).then(r=>r.json()).catch(e=>({{success:false,message:e.toString()}}))"
