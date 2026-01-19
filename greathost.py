@@ -97,7 +97,8 @@ def run_task():
 
         # 2. 获取 ID [按照您的要求从 API 获取]
         res = fetch_api(driver, "/api/servers")
-        server_list = res.get('servers', [])
+        server_list = raw.get("servers") if isinstance(raw, dict) else raw
+        server_list = server_list or []
         target_server = next((s for s in server_list if s.get('name') == TARGET_NAME_CONFIG), None)
         if not target_server: raise Exception(f"未找到服务器: {TARGET_NAME_CONFIG}")
         server_id = target_server.get('id')
@@ -138,7 +139,8 @@ def run_task():
         # 5. 执行续期 POST
         print(f"🚀 正在为 {TARGET_NAME_CONFIG} 发送续期请求...")
         renew_res = fetch_api(driver, f"/api/renewal/contracts/{server_id}/renew-free", method="POST")
-        
+        time.sleep(3)
+      
         # 6. 处理续期后时间
         renew_c = renew_res.get('contract', {})
         after_h = calculate_hours(renew_c.get('renewalInfo', {}).get('nextRenewalDate'))
