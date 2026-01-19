@@ -45,19 +45,50 @@ def calculate_hours(date_str):
         return 0
 
 def fetch_api(driver, url, method="GET"):
-    """
-    在浏览器上下文执行 fetch。
-    如果响应不是 JSON，则返回 {'success': False, '__raw_text': '<html...>'}
-    """
     script = f"""
-    return fetch('{url}', {{method:'{method}'}})
-      .then(async r => {{
-          const text = await r.text();
-          try {{ return JSON.parse(text); }} catch(e) {{ return {{success:false, __raw_text: text}}; }}
-      }})
-      .catch(e=>({{success:false,message:e.toString()}}))
+    return fetch('{url}', {{
+        method: '{method}',
+        headers: {{ 'Accept': 'application/json, text/plain, */*' }}
+    }})
+    .then(async r => {{
+        const ct = r.headers.get('content-type') || '';
+        const text = await r.text();
+        try {{
+            return JSON.parse(text);
+        }} catch(e) {{
+            return {{success:false, __raw_text: text, __content_type: ct, __status: r.status}};
+        }}
+    }})
+    .catch(e => ({{success:false, message: e.toString()}}))
     """
     return driver.execute_script(script)
+
+def extract_json_from_requests(driver, server_id, lookback=200):
+    """
+    从 seleniumwire 的请求日志倒序查找与 server_id 相关的最近 JSON 响应。
+    返回解析后的 dict 或 None。
+    """
+    for req in reversed(driver.requests[-lookback:]):
+        if server_id in (req.url or ""):
+            status = req.response.status_code if req.response else None
+            ct = req.response.headers.get('Content-Type','') if req.response else ''
+            try:
+                body = req.response.body.decode('utf-8', errors='replace') if req.response else ''
+            except Exception:
+                body = ''
+            # 优先 content-type 为 json
+            if ct and 'application/json' in ct.lower():
+                try:
+                    return json.loads(body)
+                except Exception:
+                    return {"success": False, "__raw_text": body, "__content_type": ct, "__status": status}
+            # 其次 body 以 { 开头也可能是 JSON
+            if body.strip().startswith('{'):
+                try:
+                    return json.loads(body)
+                except Exception:
+                    return {"success": False, "__raw_text": body, "__content_type": ct, "__status": status}
+    return None
 
 # Telegram 通知系统
 def send_telegram(msg):
@@ -151,33 +182,49 @@ def run_task():
         status_info = STATUS_MAP.get(raw_status.capitalize(), ["❓", raw_status])
         status_display = f"{status_info[0]} {status_info[1]}"
 
-        # 4. 抓取续期前时间 (contract 页面) —— 安全解析与调试
+        # 4. 抓取续期前时间 (contract 页面) —— 优先取 JSON XHR，回退到请求日志
         driver.get(f"https://greathost.es/contracts/{server_id}")
-        time.sleep(5)
+        time.sleep(2)  # 让页面开始触发 XHR
+
+        # 先尝试直接调用 API 路径（fetch_api 已带 Accept）
         contract_res = fetch_api(driver, f"/api/servers/{server_id}/contract")
+
+        # 安全打印（避免 json.dumps 在非序列化对象上崩溃）
         try:
             print("DEBUG /contract raw:", json.dumps(contract_res, indent=2, ensure_ascii=False))
         except Exception:
             print("DEBUG /contract raw (non-serializable):", type(contract_res), str(contract_res)[:1000])
 
-        # 如果返回原始文本（HTML），fetch_api 会把它放在 __raw_text
+        # 如果 fetch_api 返回原始文本（HTML），尝试从 seleniumwire 请求日志中提取最近的 JSON 响应
         if isinstance(contract_res, dict) and contract_res.get("__raw_text"):
-            raw = contract_res.get("__raw_text")
-            print("DEBUG /contract 返回非 JSON 内容（可能是登录页或错误页），原文片段：", raw[:1000])
-            # 简单重试一次
-            print("DEBUG 尝试重新加载页面并重试一次 contract 接口...")
+            print("DEBUG /contract fetch 返回非 JSON，尝试从请求日志中查找 JSON 响应...")
+            found = extract_json_from_requests(driver, server_id)
+            if found:
+                contract_res = found
+            else:
+                # 页面 JS 可能稍后才发 XHR，短轮询几次再试
+                for _ in range(8):
+                    time.sleep(1)
+                    found = extract_json_from_requests(driver, server_id)
+                    if found:
+                        contract_res = found
+                        break
+
+        # 如果仍然没有 JSON，做一次页面重载并重试（最后手段）
+        if isinstance(contract_res, dict) and contract_res.get("__raw_text"):
+            print("DEBUG /contract 仍未拿到 JSON，尝试重新加载页面并重试一次...")
             driver.get(f"https://greathost.es/contracts/{server_id}")
-            time.sleep(5)
+            time.sleep(3)
             contract_res = fetch_api(driver, f"/api/servers/{server_id}/contract")
             try:
                 print("DEBUG /contract retry raw:", json.dumps(contract_res, indent=2, ensure_ascii=False))
             except Exception:
                 print("DEBUG /contract retry raw (non-serializable):", type(contract_res), str(contract_res)[:1000])
             if isinstance(contract_res, dict) and contract_res.get("__raw_text"):
-                # 重试仍失败：打印 seleniumwire 请求以便进一步排查，然后抛出异常
-                print("DEBUG contract 接口重试仍返回 HTML，开始打印相关请求（最多 20 条）以便排查：")
-                for req in driver.requests[-20:]:
-                    if "/contract" in (req.url or "") or "/api/servers" in (req.url or ""):
+                # 重试仍失败：打印最近相关请求以便排查，然后抛出异常
+                print("DEBUG contract 接口重试仍返回 HTML，开始打印相关请求（最多 30 条）以便排查：")
+                for req in driver.requests[-30:]:
+                    if server_id in (req.url or "") or "/api/servers" in (req.url or ""):
                         print(req.method, req.url, req.response.status_code if req.response else None)
                         if req.response:
                             try:
@@ -235,6 +282,7 @@ def run_task():
                 return
             else:
                 print("DEBUG 不在冷却期，minutes_passed =", minutes_passed)
+
 
         # 5. 执行续期 POST
         print(f"🚀 正在为 {serverName} 发送续期请求...")
