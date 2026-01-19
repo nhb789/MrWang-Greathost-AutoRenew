@@ -119,6 +119,7 @@ def run_task():
         contract_res = fetch_api(driver, f"/api/servers/{server_id}/contract")
         c_data = contract_res.get('contract', {})
         r_info = c_data.get('renewalInfo', {})
+        serverName = c_data.get("serverName", "未知名称")
         
         before_h = calculate_hours(r_info.get('nextRenewalDate'))
         last_renew_str = r_info.get('lastRenewalDate')
@@ -132,7 +133,7 @@ def run_task():
             
             if minutes_passed < 30:
                 wait_min = int(30 - minutes_passed)
-                fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","冷却倒计时",f"{wait_min} 分钟"),("📊","当前累计",f"{before_h}h"),("🚀","状态",status_display)]
+                fields = [("📛","服务器名称", serverName),("🆔","ID",f"<code>{server_id}</code>"),("⏰","冷却倒计时",f"{wait_min} 分钟"),("📊","当前累计",f"{before_h}h"),("🚀","状态",status_display)]
                 send_notice("cooldown", fields)
                 return
 
@@ -154,19 +155,40 @@ def run_task():
         is_maxed = has_limit_msg or (has_reached_threshold and renew_res.get('success'))
 
         if is_success:
-            fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","增加时间",f"{before_h} ➔ {after_h}h"),("🚀","服务器状态",status_display),("💰","当前金币",str(c_data.get('userCoins', 0)))]
+            fields = [
+                ("📛","服务器名称", serverName),
+                ("🆔","ID", f"<code>{server_id}</code>"),
+                ("⏰","增加时间", f"{before_h} ➔ {after_h}h"),
+                ("🚀","服务器状态", status_display),
+                ("💰","当前金币", str(c_data.get('userCoins', 0)))
+            ]
             send_notice("renew_success", fields)
+
         elif is_maxed:
-            fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","剩余时间",f"{after_h}h"),("🚀","服务器状态",status_display),("💡","提示","已近120h上限，暂无需续期。")]
+            fields = [
+                ("📛","服务器名称", serverName),
+                ("🆔","ID", f"<code>{server_id}</code>"),
+                ("⏰","剩余时间", f"{after_h}h"),
+                ("🚀","服务器状态", status_display),
+                ("💡","提示", "已近120h上限，暂无需续期。")
+            ]
             send_notice("maxed_out", fields)
+
         else:
-            fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","剩余时间",f"{before_h}h"),("🚀","服务器状态",status_display),("💡","提示","时间未增加，请手动确认。")]
+            fields = [
+                ("📛","服务器名称", serverName),
+                ("🆔","ID", f"<code>{server_id}</code>"),
+                ("⏰","剩余时间", f"{before_h}h"),
+                ("🚀","服务器状态", status_display),
+                ("💡","提示", "时间未增加，请手动确认。")
+            ]
             send_notice("renew_failed", fields)
+
 
     except Exception as e:
         err = str(e).replace('<','[').replace('>',']')
         print("Runtime error:", err)
-        send_notice("business_error", [("🆔","ID",f"<code>{server_id}</code>"),("❌","详情",f"<code>{err}</code>")])
+        send_notice("business_error", [("📛","服务器名称", serverName),("🆔","ID",f"<code>{server_id}</code>"),("❌","详情",f"<code>{err}</code>")])
     finally:
         if driver: driver.quit()
 
