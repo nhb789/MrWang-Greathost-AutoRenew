@@ -1,5 +1,5 @@
-import os, re, time, random, requests
-from datetime import datetime
+import os, re, time, random, requests, json
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -9,7 +9,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# Config
+# ================= 配置区 =================
 EMAIL = os.getenv("GREATHOST_EMAIL", "")
 PASSWORD = os.getenv("GREATHOST_PASSWORD", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -24,289 +24,115 @@ STATUS_MAP = {
     "Suspended": ["🚫", "已暂停/封禁"]
 }
 
+# ================= 工具函数 =================
 def now_shanghai():
     return datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y/%m/%d %H:%M:%S')
 
-def mask_host(h):
-    if not h: return "Unknown"
-    if ":" in h:
-        p = h.split(':')
-        return f"{p[0]}:{p[1]}:****:{p[-1]}" if len(p) > 3 else f"{h[:9]}****"
-    parts = h.split('.')
-    if len(parts) == 4: return f"{parts[0]}.{parts[1]}.***.{parts[3]}"
-    if len(parts) >= 3: return f"{parts[0]}.****.{parts[-1]}"
-    return f"{h[:4]}****"
-
 def get_proxy_expected_host():
-    raw = (os.getenv("PROXY_URL") or "").strip()
-    if not raw: return None
+    if not PROXY_URL: return None
+    try: return urlparse(PROXY_URL).hostname
+    except: return None
+
+def calculate_hours(date_str):
     try:
-        tmp = raw if "://" in raw else f"http://{raw}"
-        host = urlparse(tmp).hostname
-        return host.lower().replace("[","").replace("]","") if host else None
-    except:
-        return None
+        if not date_str: return 0
+        expiry = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+        return max(0, int((expiry - now).total_seconds() / 3600))
+    except: return 0
 
-EXPECTED_HOST = get_proxy_expected_host()
-
-# Telegram
-def send_telegram(msg):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID: return
-    s = requests.Session(); s.trust_env = False
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        s.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=5)
-    except Exception as e:
-        print("TG send failed:", e)
-
-def format_fields(fields):
-    return "\n".join(f"{emoji} <b>{label}:</b> {value}" for emoji,label,value in fields)
+def fetch_api(driver, url, method="GET"):
+    """执行 JS 抓取 API 并打印调试信息"""
+    script = f"return fetch('{url}', {{method:'{method}'}}).then(r=>r.json()).catch(e=>({{success:false,message:e.toString()}}))"
+    res = driver.execute_script(script)
+    print(f"📡 API 调用 [{method}] {url}\n📦 原始响应: {json.dumps(res, ensure_ascii=False)}")
+    return res
 
 def send_notice(kind, fields):
-    titles = {
-        "renew_success":"🎉 <b>GreatHost 续期成功</b>",
-        "maxed_out":"🈵 <b>GreatHost 已达上限</b>",
-        "cooldown":"⏳ <b>GreatHost 还在冷却中</b>",
-        "renew_failed":"⚠️ <b>GreatHost 续期未生效</b>",
-        "business_error":"🚨 <b>GreatHost 脚本业务报错</b>",
-        "proxy_error":"🚫 <b>GreatHost 代理预检失败</b>"
-    }
-    title = titles.get(kind, "‼️ <b>GreatHost 通知</b>")
-    body = format_fields(fields)
-    msg = f"{title}\n\n{body}\n📅 <b>时间:</b> {now_shanghai()}"
-    send_telegram(msg)
-    print("Notify:", title, "|", body.replace("\n"," | "))
+    titles = {"renew_success":"🎉 <b>续期成功</b>", "maxed_out":"🈵 <b>已达上限</b>", 
+              "cooldown":"⏳ <b>还在冷却</b>", "renew_failed":"⚠️ <b>续期未生效</b>", "error":"🚨 <b>脚本报错</b>"}
+    body = "\n".join([f"{e} <b>{l}:</b> {v}" for e,l,v in fields])
+    msg = f"{titles.get(kind, '‼️ 通知')}\n\n{body}\n📅 <b>时间:</b> {now_shanghai()}"
+    if TELEGRAM_BOT_TOKEN:
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
+                      data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=5)
 
-# Proxy check (3 steps)
-def check_proxy_ip(driver):
-    if not PROXY_URL.strip():
-        print("No proxy configured, skip proxy check.")
-        return True
-    proxy = {"http": PROXY_URL, "https": PROXY_URL}
-    now = now_shanghai()
-    try:
-        r = requests.get("https://api64.ipify.org?format=json", proxies=proxy, timeout=12)
-        current_ip = r.json().get("ip","").lower()
-        print("Proxy IP:", current_ip)
-        if EXPECTED_HOST:
-            match_full = (EXPECTED_HOST in current_ip) or (current_ip in PROXY_URL.lower())
-            ipv6_match = (":" in current_ip and ":" in EXPECTED_HOST and current_ip.split(':')[:4] == EXPECTED_HOST.split(':')[:4])
-            if not (match_full or ipv6_match):
-                m_exp, m_cur = mask_host(EXPECTED_HOST), mask_host(current_ip)
-                raise Exception(f"BLOCK_ERR|{m_exp}|{m_cur}")
-        driver.set_page_load_timeout(30)
-        driver.get("https://api.ipify.org?format=json")
-        return True
-    except Exception as e:
-        clean = str(e).replace('<','[').replace('>',']')
-        if "BLOCK_ERR" in clean:
-            _, m_exp, m_cur = clean.split('|')
-            msg = (f"🚨 <b>GreatHost IP 校验拦截</b>\n\n"
-                   f"❌ <b>配置代理:</b> <code>{m_exp}</code>\n"
-                   f"❌ <b>实际出口:</b> <code>{m_cur}</code>\n"
-                   f"⚠️ <b>警告:</b> 代理已偏离\n📅 <b>时间:</b> {now}")
-            send_telegram(msg); raise Exception(clean)
-        else:
-            msg = (f"🚨 <b>GreatHost 代理预检失败</b>\n\n"
-                   f"❌ <b>详情:</b> <code>{clean}</code>\n📅 <b>时间:</b> {now}")
-            send_telegram(msg); raise Exception(clean)
-
-# Browser helpers
-def get_browser():
-    # 1. 基础浏览器参数配置
-    opts = Options()
-    opts.add_argument("--headless=new"); opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage"); opts.add_argument("--window-size=1920,1080")
-    opts.add_argument("--lang=en-US")
-    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    # 2. 只有当代理为空时，直连
-    if PROXY_URL and str(PROXY_URL).strip().lower() != "none":
-        sw = {'proxy': {'http': PROXY_URL, 'https': PROXY_URL, 'no_proxy': 'localhost,127.0.0.1'}}
-        print(f"Log: Browser starting with proxy.")
-        return webdriver.Chrome(options=opts, seleniumwire_options=sw)
-    else:        
-        print("Log: PROXY_URL is empty, launching in direct mode.")
-        return webdriver.Chrome(options=opts)
-
-def safe_send_keys(el, text):
-    try: el.clear()
-    except: pass
-    el.send_keys(text); time.sleep(0.12)
-
-def safe_click(driver, el):
-    try: el.click()
-    except:
-        try: driver.execute_script("arguments[0].click();", el)
-        except: raise
-
-def click_button(driver, el, desc, js_selector=None):
-    try:
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
-        time.sleep(random.uniform(1.0,2.0))
-        safe_click(driver, el); time.sleep(2); print("Clicked:", desc); return True
-    except Exception as e:
-        print("Click failed:", e, "try JS")
-        try:
-            if js_selector:
-                driver.execute_script(f"document.querySelector('{js_selector}').click();")
-            else:
-                driver.execute_script("arguments[0].click();", el)
-            time.sleep(2); return True
-        except Exception as e2:
-            print("JS click failed:", e2); return False
-
-def perform_step(driver, wait, desc, locator, js_selector=None):
-    try:
-        el = wait.until(EC.element_to_be_clickable(locator))
-        return click_button(driver, el, desc, js_selector)
-    except Exception as e:
-        print(desc, "failed:", e); return False
-
-# Core actions
-def login(driver, wait):
-    driver.get("https://greathost.es/login")
-    e = wait.until(EC.presence_of_element_located((By.NAME,"email")))
-    try: click_button(driver, e, "email focus")
-    except: pass
-    time.sleep(0.2); safe_send_keys(e, EMAIL)
-    p = wait.until(EC.presence_of_element_located((By.NAME,"password")))
-    try: click_button(driver, p, "password focus")
-    except: pass
-    time.sleep(0.2); safe_send_keys(p, PASSWORD)
-    time.sleep(random.uniform(0.6,1.2))
-    s = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR,"button[type='submit']")))
-    safe_click(driver, s); wait.until(EC.url_contains("/dashboard")); print("Logged in")
-
-def simulate_human(driver, wait):
-    if random.random() > 0.5:
-        driver.get("https://greathost.es/services"); time.sleep(random.randint(3,6))
-        driver.get("https://greathost.es/dashboard"); wait.until(EC.url_contains("/dashboard"))
-        time.sleep(random.uniform(0.8,2.0))
-
-def go_to_details(driver, wait):
-    perform_step(driver, wait, "Billing icon", (By.CLASS_NAME,'btn-billing-compact'), ".btn-billing-compact")
-    perform_step(driver, wait, "View Details", (By.LINK_TEXT,'View Details'), "a[href*='details']")
-    return driver.current_url.split('/')[-1] or "unknown"
-
-def get_hours(driver, selector="#accumulated-time"):
-    for _ in range(3):
-        try:
-            el = WebDriverWait(driver, 6).until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
-            text = driver.execute_script("return (arguments[0]||{textContent:''}).textContent;", el) or el.text or ""
-        except:
-            try: text = driver.execute_script("return (document.querySelector(arguments[0])||{textContent:''}).textContent;", selector) or ""
-            except: text = ""
-        num = int(re.sub(r'\D', '', text)) if re.search(r'\d', text or '') else 0
-        if num: return num, text.strip()
-        time.sleep(random.uniform(2.5, 4.5))
-    return 0, (text or "").strip()
-
-def get_error_msg(driver):
-    js = "return document.body.innerText.includes('5 días') ? 'No puedes renovar más de 5 días' : ''"
-    try: return driver.execute_script(js).strip()
-    except: return ""
-
-def renew_click(driver, wait):
-    perform_step(driver, wait, "Renew button", (By.ID,'renew-free-server-btn'))
-    end = time.time() + 3
-    while time.time() < end:
-        msg = get_error_msg(driver)
-        if msg: 
-            print(f"DEBUG: 抓到报错 -> {msg}")
-            return msg
-        time.sleep(random.uniform(0.3, 0.6))
-    return ""
-
-def confirm_and_start(driver, wait):
-    final = "运行正常"; started = False
-    try:
-        driver.get("https://greathost.es/dashboard")
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME,'server-status-indicator')))
-        time.sleep(1.5)
-        ind = driver.find_element(By.CLASS_NAME,'server-status-indicator')
-        final = ind.get_attribute('title') or "Unknown"
-    except Exception as e:
-        print("Final status fetch failed:", e); final = "确认失败"
-    low = final.lower()
-    if any(x in low for x in ['stopped','offline']):
-        print("Final state offline/stopped, try start")
-        started = perform_step(driver, wait, "Start button", (By.CSS_SELECTOR,'button.btn-start, .action-start'), "button.btn-start, .action-start")
-    return final, started
-
-# Main
+# ================= 主流程 =================
 def run_task():
-    time.sleep(random.randint(1,60))
-    driver = None; server_id = "未知"; before = 0; after = 0; status_display = "🟢 运行正常"
+    driver = None
+    server_id, server_name = "未知", "未知"
     try:
-        driver = get_browser() 
-        
-        if globals().get('PROXY_URL'):
-            check_proxy_ip(driver)
-        
-        wait = WebDriverWait(driver, 15)
-        login(driver, wait)
-        simulate_human(driver, wait)
+        opts = Options()
+        opts.add_argument("--headless=new")
+        driver = webdriver.Chrome(options=opts, seleniumwire_options={'proxy': {'http': PROXY_URL, 'https': PROXY_URL}} if PROXY_URL else None)
+        wait = WebDriverWait(driver, 25)
 
-        server_id = go_to_details(driver, wait)
-        before, _ = get_hours(driver)
-        print("Before hours:", before)
+        # 1. 登录
+        print(f"🔑 正在尝试登录: {EMAIL}...")
+        driver.get("https://greathost.es/login")
+        wait.until(EC.presence_of_element_located((By.NAME,"email"))).send_keys(EMAIL)
+        driver.find_element(By.NAME,"password").send_keys(PASSWORD)
+        driver.find_element(By.CSS_SELECTOR,"button[type='submit']").click()
+        wait.until(EC.url_contains("/dashboard"))
+        print("✅ 登录成功，进入 Dashboard")
 
-        renew_btn = wait.until(EC.presence_of_element_located((By.ID,"renew-free-server-btn")))
-        btn_html = renew_btn.get_attribute('innerHTML') or ""
-        if 'Wait' in btn_html:
-            m = re.search(r'\d+', btn_html); wt = m.group(0) if m else "??"
-            fields = [("🆔","服务器ID",f"<code>{server_id}</code>"),("⏰","冷却时间",f"{wt} 分钟"),("📊","当前累计",f"{before}h"),("🚀","服务器状态",status_display)]
-            send_notice("cooldown", fields)
-            return # finally 会处理 driver.quit()
-
-        err_msg = renew_click(driver, wait)
-        after, _ = get_hours(driver)      
-        print(f"Final after hours used for 判定: {after}")
+        # 2. 获取 Server 基础信息
+        servers = fetch_api(driver, "/api/servers")
+        if not servers or not isinstance(servers, list): raise Exception("未能获取服务器列表")
+        server_id = servers[0].get('id')
+        print(f"🆔 锁定服务器 ID: {server_id}")
         
-        final_status, started_flag = confirm_and_start(driver, wait)
-        if started_flag:
-            icon, name = STATUS_MAP.get(final_status, ["❓", final_status])
-            status_display = f"✅ 已触发启动 ({icon} {name})"
+        # 3. 获取详细状态信息 (包含 Name)
+        info = fetch_api(driver, f"/api/servers/{server_id}/information")
+        server_name = info.get('name', '未命名')
+        real_status = info.get('status', 'Unknown')
+        print(f"📋 服务器详情: 名称={server_name} | 状态={real_status}")
+
+        # 4. 合同页预检 (时间 & 冷却按钮)
+        driver.get(f"https://greathost.es/contracts/{server_id}")
+        time.sleep(2)
+        
+        contract = fetch_api(driver, f"/api/servers/{server_id}/contract")
+        before_h = calculate_hours(contract.get('renewalInfo', {}).get('nextRenewalDate'))
+        
+        btn = wait.until(EC.presence_of_element_located((By.ID, "renew-free-server-btn")))
+        btn_text = btn.text.strip()
+        print(f"🔘 按钮文本: '{btn_text}' | 当前剩余: {before_h}h")
+        
+        if "Wait" in btn_text:
+            m = re.search(r"Wait\s+(\d+\s+\w+)", btn_text)
+            wait_time = m.group(1) if m else btn_text
+            print(f"⏳ 触发冷却防御: {wait_time}")
+            send_notice("cooldown", [("📛","名称",server_name), ("⏳","等待",wait_time), ("📊","当前",f"{before_h}h")])
+            return
+
+        # 5. 执行续期动作
+        print("🚀 发起续期 POST 请求...")
+        res = fetch_api(driver, f"/api/renewal/contracts/{server_id}/renew-free", method="POST")
+        
+        is_success = res.get('success', False)
+        hours_added = res.get('details', {}).get('hoursAdded', 0)
+        after_h = calculate_hours(res.get('details', {}).get('nextRenewalDate')) or before_h
+        
+        icon, status_name = STATUS_MAP.get(real_status.capitalize(), ["🟢", real_status])
+        status_disp = f"{icon} {status_name}"
+
+        # 6. 最终判定逻辑 (包含 5 天上限西班牙语处理)
+        if is_success and hours_added > 0:
+            print(f"🎉 成功增加 {hours_added} 小时")
+            send_notice("renew_success", [("📛","名称",server_name), ("⏰","变化",f"{before_h} ➔ {after_h}h"), ("🚀","状态",status_disp)])
+        elif "5 d" in str(res.get('message', '')) or (before_h > 110):
+            print("🈵 判定为已达上限 (5 days limit)")
+            send_notice("maxed_out", [("📛","名称",server_name), ("⏰","余额",f"{after_h}h"), ("🚀","状态",status_disp), ("💡","提示","已达5天上限")])
         else:
-            icon, name = STATUS_MAP.get(final_status, ["🟢", "运行正常"])
-            status_display = f"{icon} {name}"
-
-        is_success = after > before
-        #is_maxed = ("5 días" in err_msg) or (before > 108 and after == before)
-               
-        # 拆分判断逻辑以便打印 # 拆分判断逻辑以便打印
-        has_limit_msg = "5 días" in err_msg
-        has_reached_threshold = (before > 108 and after == before)
-        is_maxed = has_limit_msg or has_reached_threshold          
-        
-        if is_maxed:
-            reason = "抓到 '5 días' 报错文案" if has_limit_msg else "触发数值保底逻辑 (before > 108)"
-            print(f"DEBUG: 判定为上限 - 依据: {reason}")  
-         # 拆分判断逻辑以便打印  # 拆分判断逻辑以便打印     
-        if is_success:
-            fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","增加时间",f"{before} ➔ {after}h"),("🚀","服务器状态",status_display)]
-            send_notice("renew_success", fields)
-        elif is_maxed:
-            fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","剩余时间",f"{after}h"),("🚀","服务器状态",status_display),("💡","提示","已近120h上限，暂无需续期。")]
-            send_notice("maxed_out", fields)
-        else:
-            fields = [("🆔","ID",f"<code>{server_id}</code>"),("⏰","剩余时间",f"{before}h"),("🚀","服务器状态",status_display),("💡","提示","时间未增加，请手动确认。")]
-            send_notice("renew_failed", fields)
+            print(f"❌ 续期失败，原因: {res.get('message')}")
+            send_notice("renew_failed", [("📛","名称",server_name), ("💡","原因",res.get('message','未知失败'))])
 
     except Exception as e:
-        err = str(e).replace('<','[').replace('>',']')
-        print("Runtime error:", err)
-        # 关键过滤：增加 "None" 和 "specification" 拦截代理变量为空导致的报错
-        proxy_keys = ["BLOCK_ERR", "代理预检", "Pool", "Timeout", "None", "specification"]
-        if all(k not in err for k in proxy_keys):
-            try: loc = driver.current_url if driver else "未知"
-            except: loc = "获取失败"
-            send_notice("business_error", [("🆔","ID",f"<code>{server_id}</code>"),("❌","详情",f"<code>{err}</code>"),("📍","位置",loc)])
-        else: print("Proxy/Network/Env error, skip business notify.")
+        print(f"🚨 脚本异常: {e}")
+        send_notice("error", [("📛","服务器",server_name), ("❌","故障",f"<code>{str(e)[:100]}</code>")])
     finally:
-        if driver:
-            try: driver.quit(); print("Browser closed")
-            except: pass
+        if driver: driver.quit(); print("🧹 浏览器会话已关闭")
 
 if __name__ == "__main__":
     run_task()
