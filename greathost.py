@@ -14,9 +14,12 @@ EMAIL = os.getenv("GREATHOST_EMAIL", "")
 PASSWORD = os.getenv("GREATHOST_PASSWORD", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+# 代理sock5可留空
 PROXY_URL = os.getenv("PROXY_URL", "")
 
-# 状态映射已全部改为英文
+# 目标服务器名
+TARGET_NAME_CONFIG = os.getenv("TARGET_NAME", "loveMC")
+
 STATUS_MAP = {
     "running": ["🟢", "Running"],
     "starting": ["🟡", "Starting"],
@@ -70,9 +73,10 @@ def send_notice(kind, fields):
 # ================= 主流程 =================
 def run_task():
     driver = None
-    target_name = "loveMC" 
+    target_name = "未知" 
     server_id = "未知"
     login_ip = "Unknown"
+    target_name = TARGET_NAME_CONFIG
     
     try:
         opts = Options()
