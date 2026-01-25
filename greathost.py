@@ -184,7 +184,7 @@ def run():
                 ("💡","提示",msg),
                 ("🌐","登入 IP",f"<code>{ip}</code>")
             ])
-except Exception as e:
+    except Exception as e:
         print(f"🚨 运行异常: {e}")
         # 因为 send_notice 内部已经强制直连，所以这里直接调就行，代码清爽多了
         send_notice("error", [
