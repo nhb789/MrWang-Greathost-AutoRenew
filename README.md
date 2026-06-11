@@ -1,13 +1,13 @@
 # GreatHost 自动续期状态
 
-🚨 **GreatHost 脚本报错**
+🎉 **GreatHost 续期成功**
 
 📛 服务器名称: nhb789
-❌ 故障: `Message: script timeout
-  (Session info: chrome=148.0.7778.178)
-Stacktrace:
-#0 0x55eb14a2416a <unkno`
-🌐 代理状态: 已尝试直连
-📅 时间: 2026/06/11 10:45:43
+🆔 ID: `12bc87d3-c9ce-41b2-b589-633cebcd60ed`
+⏰ 增加时间: 97 ➔ 109h
+🚀 服务器状态: 🟡 Starting
+💡 提示: Servidor gratuito renovado correctamente
+🌐 落地 IP: `4.227.173.120`
+📅 时间: 2026/06/11 20:03:08
 
-> 最近更新: 2026/06/11 10:45:44
+> 最近更新: 2026/06/11 20:03:08
