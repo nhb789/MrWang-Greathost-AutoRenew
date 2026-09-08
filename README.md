@@ -1,13 +1,13 @@
 # GreatHost 自动续期状态
 
-🎉 **GreatHost 续期成功**
+🈵 **GreatHost 已达上限**
 
 📛 服务器名称: nhb789
 🆔 ID: `12bc87d3-c9ce-41b2-b589-633cebcd60ed`
-⏰ 增加时间: 107 ➔ 119h
+⏰ 剩余时间: 109h
 🚀 服务器状态: 🟡 Starting
-💡 提示: Servidor gratuito renovado correctamente
-🌐 落地 IP: `20.3.215.33`
-📅 时间: 2026/09/08 10:11:16
+💡 提示: No puedes renovar más de 5 días acumulados
+🌐 落地 IP: `135.119.39.134`
+📅 时间: 2026/09/08 20:25:48
 
-> 最近更新: 2026/09/08 10:11:17
+> 最近更新: 2026/09/08 20:25:49
