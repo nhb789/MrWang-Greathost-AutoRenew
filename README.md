@@ -1,14 +1,13 @@
 # GreatHost 自动续期状态
 
-🚨 **GreatHost 脚本报错**
+🎉 **GreatHost 续期成功**
 
 📛 服务器名称: nhb789
-❌ 故障: `Message: 
-Stacktrace:
-#0 0x557686a6d1da <unknown>
-#1 0x55768638c5c9 <unknown>
-#2 0x5576863e360f <unk`
-🌐 代理状态: 已尝试直连
-📅 时间: 2026/10/16 10:22:27
+🆔 ID: `12bc87d3-c9ce-41b2-b589-633cebcd60ed`
+⏰ 增加时间: 96 ➔ 108h
+🚀 服务器状态: 🟡 Starting
+💡 提示: Servidor gratuito renovado correctamente
+🌐 落地 IP: `48.214.55.64`
+📅 时间: 2026/10/16 20:52:02
 
-> 最近更新: 2026/10/16 10:22:28
+> 最近更新: 2026/10/16 20:52:02
